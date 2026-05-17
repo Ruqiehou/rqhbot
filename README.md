@@ -1,4 +1,4 @@
-# RqhBot - QQ 机器人 SDK
+# RqhBot - QQ 机器人PYTHON  SDK
 
 <div align="center">
 
