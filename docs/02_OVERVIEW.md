@@ -8,7 +8,7 @@ RqhBot 是一个基于 NapCat OneBot11 协议的 Python QQ 机器人 SDK，提�
 
 ### 事件总线架构
 - **EventBus**：模块间通过事件总线通信，彻底解耦
-- 插件只依赖 `IBotAPI` 接口，不持有 `BotClient` 引用
+- 插件只依赖 `IClient` 接口，不持有 `BotClient` 引用
 - 支持任意模块订阅/发布事件
 
 ### 强类型事件
@@ -20,11 +20,11 @@ RqhBot 是一个基于 NapCat OneBot11 协议的 Python QQ 机器人 SDK，提�
 ### 简洁的 API 设计
 - 直观的接口，完整类型提示
 - 异步编程模型
-- `BotAPI.call()` 支持调用任意 OneBot API
+- `NapCatClient.call()` 支持调用任意 OneBot API
 
 ### 插件系统
 - 热插拔架构，支持 `filter_registry.group_server` / `filter_registry.private_server` 消息过滤器
-- 标准化接口（只依赖 `IBotAPI` + `EventBus`）
+- 标准化接口（只依赖 `IClient` + `EventBus`）
 - 内置配置加载与数据持久化
 
 ### 灵活配置
@@ -37,8 +37,8 @@ RqhBot 是一个基于 NapCat OneBot11 协议的 Python QQ 机器人 SDK，提�
 ```
 rqhbot/
 ├── sdk/                    # SDK 核心
+│   ├── core/              # 客户端、事件模型、事件总线
 │   ├── config/            # 配置管理
-│   ├── core/              # 客户端、事件、API、事件总线
 │   └── pluginsystem/      # 插件基类与热加载管理器
 ├── plugins/               # 插件目录
 │   ├── group_summary/     # 群总结
@@ -68,28 +68,27 @@ rqhbot/
 
 ```
 ┌─────────────────┐
-│   NapCat        │ ← WebSocket
+│     NapCat      │ ← WebSocket
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  NapCatClient   │ ← 连接 + API
+│  NapCatClient   │ ← 连接 + API（实现 IClient Protocol）
 └────────┬────────┘
          ▼
 ┌─────────────────┐
 │    EventBus     │ ← 发布强类型事件，模块解耦
-└────────┬────────┘
-    ┌────┴────┐
-    ▼         ▼
-┌────────┐  ┌────────────┐
-│BotClient│  │PluginManager│
-└────────┘  └─────┬──────┘
-                  ▼
-             ┌─────────┐
-             │ Plugins │
-             └─────────┘
+└──┬──────────┬───┘
+   ▼          ▼
+┌─────────┐  ┌──────────────┐
+│BotClient│  │PluginManager │ ← 管理所有插件
+└─────────┘  └──────┬───────┘
+                    ▼
+              ┌──────────┐
+              │ Plugins  │ ← 只依赖 IClient + EventBus
+              └──────────┘
 ```
 
-**关键原则**：`NapCatClient` 负责连接和 API，`EventBus` 是模块通信唯一中介，插件只依赖 `IBotAPI`。
+**关键原则：** `NapCatClient` 负责连接和 API，`EventBus` 是模块通信唯一中介，插件只依赖 `IClient` 接口（由 `NapCatClient` 实现）。
 
 ---
 

@@ -361,11 +361,10 @@ async def save_data(self):
 
 ## 📚 相关文档
 
-- [API 参考](./05_API.md) - BotAPI 和 PluginBase 详细说明
-- [快速开始](./03_QUICK_START.md) - 项目入门指南
-- [配置指南](./04_CONFIG_GUIDE.md) - 配置系统说明
-- [架构概览](./02_OVERVIEW.md) - 架构设计说明
-- [SDK 结构](../sdk/README.md) - SDK 模块化说明
+- [API 参考](./05_API.md) — NapCatClient 和 PluginBase 详细说明
+- [快速开始](./03_QUICK_START.md) — 项目入门指南
+- [配置指南](./04_CONFIG_GUIDE.md) — 配置系统说明
+- [架构概览](./02_OVERVIEW.md) — 架构设计说明
 
 ---
 

@@ -33,7 +33,7 @@ cp config.yaml.example config.yaml
 
 ```yaml
 napcat:
-  ws_url: "ws://127.0.0.1:3002"   # Win 建议用 127.0.0.1
+  ws_url: "ws://127.0.0.1:3002"
   access_token: ""                  # NapCat 访问令牌
 ```
 
@@ -66,18 +66,15 @@ WebSocket: ws://127.0.0.1:3002
 
 ```python
 from sdk import BotClient, GroupMessageEvent
-from sdk.config import config_manager
 
 bot = BotClient()
 
 @bot.on_group_message()
 async def handle_message(msg: GroupMessageEvent):
-    text = msg.message.plain_text
-    if text == "ping":
+    if msg.message.plain_text == "ping":
         await bot.api.send_group_message(msg.group_id, "pong!")
 
 if __name__ == "__main__":
-    bot.client.ws_url = config_manager.get("napcat.ws_url")
     bot.start(load_plugins=False)
 ```
 

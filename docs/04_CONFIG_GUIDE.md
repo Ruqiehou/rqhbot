@@ -87,7 +87,7 @@ ws_url = config_manager.get("napcat.ws_url", "ws://127.0.0.1:3002")
 load_plugins = config_manager.get("bot.load_plugins", True)
 plugin_dir = config_manager.get("bot.plugin_dir", "plugins")
 
-bot.client.ws_url = ws_url
+bot.api.ws_url = ws_url
 bot.start(load_plugins=load_plugins)
 ```
 

@@ -14,12 +14,11 @@ python run.py                         # 启动机器人
 
 | 文档 | 说明 |
 |------|------|
-| [02_OVERVIEW.md](./02_OVERVIEW.md) | 项目概述、架构设计与技术栈 |
+| [02_OVERVIEW.md](./02_OVERVIEW.md) | 项目概述、架构设计 |
 | [03_QUICK_START.md](./03_QUICK_START.md) | 5 分钟上手指南 |
 | [04_CONFIG_GUIDE.md](./04_CONFIG_GUIDE.md) | 配置管理器 API 与 config.yaml 详解 |
-| [05_API.md](./05_API.md) | BotAPI、PluginBase、事件类型完整参考 |
+| [05_API.md](./05_API.md) | NapCatClient、PluginBase、事件类型完整参考 |
 | [06_PLUGIN_DEVELOPMENT.md](./06_PLUGIN_DEVELOPMENT.md) | 插件开发指南（含过滤器和范式速查） |
-| [SDK README](../sdk/README.md) | SDK 模块结构与快速示例 |
 
 ## 🎯 阅读路径
 
@@ -30,7 +29,6 @@ python run.py                         # 启动机器人
 ## 🆘 帮助
 
 - 提交 [Issue](https://github.com/your-repo/rqhbot/issues)
-- 查看 [SDK README](../sdk/README.md)
 
 ---
 
