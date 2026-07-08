@@ -113,7 +113,8 @@ class BotClient:
 
     def _fire_task(self, coro: Awaitable[Any]) -> None:
         """创建后台任务并追踪，异常会被记录而非静默丢失"""
-        task = asyncio.ensure_future(coro)
+        # 使用 create_task（仅在 running loop 中调用，语义更明确）
+        task = asyncio.create_task(coro)
         self._tracked_tasks.add(task)
         task.add_done_callback(self._tracked_tasks.discard)
         task.add_done_callback(self._on_task_error)

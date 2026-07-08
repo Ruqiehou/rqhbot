@@ -1,0 +1,1 @@
+# RqhBot plugins package

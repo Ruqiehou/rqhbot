@@ -26,13 +26,14 @@ setup(
         "Issues": "https://github.com/rqhbot/rqhbot/issues",
     },
     python_requires=">=3.8",
-    packages=find_packages(include=["sdk*"]),
+    packages=find_packages(include=["sdk*", "plugins*"]),
     install_requires=[
         "websockets>=16.0",
         "PyYAML>=6.0",
         "python-dotenv>=1.0",
         "requests>=2.32",
         "aiohttp>=3.11",
+        "packaging>=23.0",
     ],
     extras_require={
         "openai": ["openai>=1.55"],

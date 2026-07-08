@@ -134,6 +134,9 @@ class NapCatClient(IClient):
         # ---- 连接事件监听器 ----
         self._connection_listeners: List[IConnectionEventListener] = []
 
+        # ---- echo_map 保护（最多 1000 条，防止内存泄漏）----
+        self._echo_maxsize: int = 1000
+
     @property
     def connected(self) -> bool:
         """是否已连接"""
@@ -273,7 +276,20 @@ class NapCatClient(IClient):
                 logger.error(f"关闭WebSocket连接时出错: {e}")
             finally:
                 self.ws = None
-        
+
+        # 清空消息队列引用（防止重连时旧 Queue 泄漏）
+        self.msg_queue = None
+
+        # 清空未完成的 echo Future
+        cancelled = 0
+        for key, future in self.echo_map.items():
+            if not future.done():
+                future.cancel()
+                cancelled += 1
+        self.echo_map.clear()
+        if cancelled:
+            logger.warning(f"断开连接时取消了 {cancelled} 个未完成的 API 请求")
+
         logger.info("WebSocket 连接已关闭")
         
         # 通知断开连接
@@ -302,14 +318,24 @@ class NapCatClient(IClient):
             self._connection_listeners.remove(listener)
 
     async def _listen_messages(self) -> None:
-        """监听消息 —— 接收循环（非阻塞入队）"""
+        """监听消息 —— 接收循环（入队时带超时，避免静默丢消息）"""
         try:
             async for message in self.ws:
                 try:
                     if self.msg_queue:
-                        self.msg_queue.put_nowait(message)
-                except asyncio.QueueFull:
-                    logger.warning("消息队列已满，丢弃消息")
+                        # 先尝试快速入队；队列满时最多等 2 秒，仍失败才丢弃
+                        try:
+                            self.msg_queue.put_nowait(message)
+                        except asyncio.QueueFull:
+                            try:
+                                await asyncio.wait_for(
+                                    self.msg_queue.put(message), timeout=2.0
+                                )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    "消息队列持续拥堵，丢弃消息（队列大小=%d）",
+                                    self.msg_queue.maxsize,
+                                )
                 except Exception as e:
                     logger.error(f"消息入队失败: {e}")
         except ConnectionClosed:
@@ -394,6 +420,19 @@ class NapCatClient(IClient):
         if exc is not None:
             logger.error(f"消息处理器异常: {exc}", exc_info=exc)
 
+    def _evict_oldest_echo(self) -> None:
+        """淘汰 echo_map 中最旧的 pending Future，防止内存泄漏"""
+        oldest_key = next(iter(self.echo_map), None)
+        if oldest_key is not None:
+            old_future = self.echo_map.pop(oldest_key, None)
+            if old_future is not None and not old_future.done():
+                old_future.set_exception(
+                    TimeoutError(f"echo_map 超限，旧请求 {oldest_key!r} 被自动淘汰")
+                )
+            logger.warning(
+                f"echo_map 已达上限 {self._echo_maxsize}，已淘汰最旧条目: {oldest_key!r}"
+            )
+
     def on_message(self, message_type: str) -> Decorator:
         """装饰器：注册消息事件处理器
 
@@ -404,9 +443,11 @@ class NapCatClient(IClient):
             装饰器函数
         """
         def decorator(func: EventHandler) -> EventHandler:
-            if message_type not in self.message_handlers:
-                self.message_handlers[message_type] = []
-            self.message_handlers[message_type].append(func)
+            handlers = self.message_handlers.setdefault(message_type, [])
+            if func not in handlers:
+                handlers.append(func)
+            else:
+                logger.debug("处理器 %s 已注册到 %s，跳过重复注册", func.__name__, message_type)
             return func
         return decorator
 
@@ -443,17 +484,22 @@ class NapCatClient(IClient):
             }
 
             future = asyncio.Future()
+
+            # 插入前淘汰最旧的，防止 echo_map 无限增长
+            if len(self.echo_map) >= self._echo_maxsize:
+                self._evict_oldest_echo()
+
             self.echo_map[echo_id] = future
 
             try:
                 await self.ws.send(json.dumps(message))
                 result = await asyncio.wait_for(future, timeout=30)
-                
+
                 if result.get("status") == "ok":
                     return result.get("data", {})
                 else:
                     last_error = Exception(f"API调用失败: {result.get('msg', '未知错误')}")
-                    
+
             except asyncio.TimeoutError:
                 last_error = TimeoutError(f"API调用超时 (尝试 {attempt + 1}/{max_retries})")
             except Exception as e:

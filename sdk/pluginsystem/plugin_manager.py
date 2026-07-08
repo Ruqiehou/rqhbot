@@ -16,14 +16,18 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import importlib.metadata
 import importlib.util
 import json
 import logging
+import re
 import sys
 import time
 import types
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from packaging.requirements import Requirement
+from packaging.version import Version, InvalidVersion
 
 try:
     from watchdog.observers import Observer
@@ -132,7 +136,7 @@ class HotReloadPluginManager:
             return default_config
 
     def _check_dependencies(self, plugin_name: str, dependencies: List[str]) -> bool:
-        """检查插件依赖是否满足
+        """检查插件依赖是否满足（含版本校验）
 
         Args:
             plugin_name: 插件名称
@@ -144,17 +148,40 @@ class HotReloadPluginManager:
         if not dependencies:
             return True
 
-        missing = []
+        unsatisfied: List[str] = []
         for dep in dependencies:
-            # 简单检查：尝试导入包名
-            pkg_name = dep.split(">=")[0].split("<=")[0].split("==")[0].split("[")[0].strip()
+            # 解析包名和版本要求
             try:
-                importlib.import_module(pkg_name)
-            except ImportError:
-                missing.append(dep)
+                req = Requirement(dep)
+            except Exception:
+                # 解析失败，只检查是否存在
+                pkg_name = dep.split(">=")[0].split("<=")[0].split("==")[0].split("[")[0].strip()
+                try:
+                    importlib.import_module(pkg_name)
+                except ImportError:
+                    unsatisfied.append(dep)
+                continue
 
-        if missing:
-            logger.error(f"插件 {plugin_name} 缺少依赖: {', '.join(missing)}")
+            # 检查包是否安装
+            try:
+                installed_version_str = importlib.metadata.version(req.name)
+            except importlib.metadata.PackageNotFoundError:
+                unsatisfied.append(dep)
+                continue
+
+            # 检查版本是否满足要求
+            if req.specifier:
+                try:
+                    installed_version = Version(installed_version_str)
+                except InvalidVersion:
+                    logger.warning(f"插件 {plugin_name}: 无法解析 {req.name} 版本 {installed_version_str!r}，跳过版本检查")
+                    continue
+
+                if installed_version not in req.specifier:
+                    unsatisfied.append(f"{req.name}{req.specifier} (已安装 {installed_version_str})")
+
+        if unsatisfied:
+            logger.error(f"插件 {plugin_name} 依赖不满足: {', '.join(unsatisfied)}")
             return False
 
         return True
@@ -594,8 +621,12 @@ class HotReloadPluginManager:
             if not old_task.done():
                 old_task.cancel()
 
-        # 创建新的防抖任务
-        loop = asyncio.get_event_loop()
+        # 创建新的防抖任务（兼容 Python 3.12+，get_event_loop 在无 running loop 时不再返回默认 loop）
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         task = loop.create_task(self._debounced_reload(plugin_name))
         self._debounce_tasks[plugin_name] = task
 
