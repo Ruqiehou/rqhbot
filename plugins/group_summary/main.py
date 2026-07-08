@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from sdk.core.events import GroupMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("group_summary")
 
 
 class GroupSummaryPlugin(PluginBase):
@@ -41,7 +41,7 @@ class GroupSummaryPlugin(PluginBase):
             self.report_dir = self.plugin_dir / "reports"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"插件 {self.name} 已加载，数据目录: {self.data_dir}")
+        logger.info(f"已加载，数据目录: {self.data_dir}")
 
     @filter_registry.group_server()
     async def handle_group_message(self, event: GroupMessageEvent):

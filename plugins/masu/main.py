@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("masu")
 
 # 默认系统提示词
 DEFAULT_SYSTEM_PROMPT = (
@@ -114,7 +114,7 @@ class MasuPlugin(PluginBase):
             }
             await self.save_config(self._config, "config.json")
 
-        logger.info(f"[masu] 插件已加载，模型: {self._config.get('model', 'unknown')}")
+        logger.info(f"插件已加载，模型: {self._config.get('model', 'unknown')}")
 
     async def on_unload(self):
         self._sessions.clear()
@@ -221,7 +221,7 @@ class MasuPlugin(PluginBase):
         """调用 OpenAI 兼容 API"""
         api_key = self._config.get("api_key", "") or self._get_env_key()
         if not api_key:
-            logger.warning("[masu] 未配置 API Key")
+            logger.warning("未配置 API Key")
             return None
 
         base_url = self._config.get("base_url", "https://api.openai.com/v1")
@@ -250,7 +250,7 @@ class MasuPlugin(PluginBase):
                 ) as resp:
                     if resp.status != 200:
                         error_body = await resp.text()
-                        logger.error(f"[masu] API 调用失败 [{resp.status}]: {error_body}")
+                        logger.error(f"API 调用失败 [{resp.status}]: {error_body}")
                         return None
                     data = await resp.json()
                     choices = data.get("choices", [])
@@ -259,10 +259,10 @@ class MasuPlugin(PluginBase):
                     return choices[0].get("message", {}).get("content", "").strip()
 
         except ImportError:
-            logger.error("[masu] 缺少 aiohttp 依赖，请执行: pip install aiohttp")
+            logger.error("缺少 aiohttp 依赖，请执行: pip install aiohttp")
             return None
         except Exception as e:
-            logger.error(f"[masu] API 调用异常: {e}", exc_info=True)
+            logger.error(f"API 调用异常: {e}", exc_info=True)
             return None
 
     def _get_env_key(self) -> str:

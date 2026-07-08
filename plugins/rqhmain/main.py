@@ -17,7 +17,7 @@ if _plugin_dir not in sys.path:
 from .abcapi import *
 from zm import zimu
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rqhmain")
 
 config_dir = os.path.dirname(__file__)
 with open(os.path.join(config_dir, "csys.json"), "r", encoding="utf-8") as f:
@@ -49,26 +49,24 @@ class RqhmainPlugin(PluginBase):
     async def on_load(self, api, event_bus, plugin_dir=None):
         """插件加载时调用"""
         await super().on_load(api, event_bus, plugin_dir)
-        logger.info(f"插件 {self.name} 已加载")
-        logger.info(f"插件版本: {self.version}")
-
+        logger.info(f"已加载, v{self.version}")
         self.config = await self.load_config()
         logger.info(f"配置已加载: {self.config}")
 
     async def on_unload(self):
         """插件卸载时调用"""
-        logger.info(f"插件 {self.name} 卸载中")
+        logger.info(f"卸载中")
 
     @filter_registry.group_server
     async def rqhbase_group(self, event: GroupMessageEvent):
         raw_message = event.message.plain_text.strip()
-        logger.info(f"[Rqhmain插件] 群消息: {event.user_id}: {raw_message}")
+        logger.info(f"群消息: {event.user_id}: {raw_message}")
         await self._process_keywords(event, raw_message)
 
     @filter_registry.private_server
     async def rqhbase_private(self, event: PrivateMessageEvent):
         raw_message = event.message.plain_text.strip()
-        logger.info(f"[Rqhmain插件] 私聊消息: {event.user_id}: {raw_message}")
+        logger.info(f"私聊消息: {event.user_id}: {raw_message}")
         await self._process_keywords(event, raw_message)
 
     async def _process_keywords(self, event, raw_message: str):

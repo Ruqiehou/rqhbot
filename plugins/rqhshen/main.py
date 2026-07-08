@@ -11,7 +11,7 @@ from sdk.pluginsystem import PluginBase, filter_registry
 # ==================== 功能自主导入 ====================
 from . import game
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rqhshen")
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -37,8 +37,7 @@ class RqhshenPlugin(PluginBase):
     async def on_load(self, api, event_bus, plugin_dir=None):
         """插件加载时调用"""
         await super().on_load(api, event_bus, plugin_dir)
-        logger.info(f"插件 {self.name} 已加载")
-        logger.info(f"插件版本: {self.version}")
+        logger.info(f"已加载, v{self.version}")
         
         self.config = await self.load_config()
         logger.info(f"配置已加载: {self.config}")
@@ -47,7 +46,7 @@ class RqhshenPlugin(PluginBase):
         
     async def on_unload(self):
         """插件卸载时调用"""
-        logger.info(f"插件 {self.name} 卸载中")
+        logger.info(f"卸载中")
         
     # ==================== 其他功能函数 ====================
         

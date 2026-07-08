@@ -11,7 +11,7 @@ from sdk.pluginsystem import PluginBase, filter_registry
 # ==================== 数据层导入 ====================
 from .answer_manager import answer_manager, hmd, gly
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rqhwenda")
 
 
 # ==================== 帮助文本 ====================
@@ -54,7 +54,7 @@ class RqhWendaPlugin(PluginBase):
     async def on_load(self, api, event_bus, plugin_dir=None) -> None:
         """插件加载回调"""
         await super().on_load(api, event_bus, plugin_dir)
-        logger.info(f"插件 {self.name} v{self.version} 已加载")
+        logger.info(f"已加载 v{self.version}")
         # 启动后台定时保存
         self.create_task(self._auto_save_loop())
 

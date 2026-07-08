@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Tuple
 from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("theme_diary")
 
 
 class ThemeDiaryPlugin(PluginBase):
@@ -37,7 +37,7 @@ class ThemeDiaryPlugin(PluginBase):
             self.plugin_dir = Path(plugin_dir)
             self.diary_dir = self.plugin_dir / "diaries"
         self.diary_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"插件 {self.name} 已加载，日记目录: {self.diary_dir}")
+        logger.info(f"已加载，日记目录: {self.diary_dir}")
 
     @filter_registry.group_server
     async def log_group_message(self, event: GroupMessageEvent):

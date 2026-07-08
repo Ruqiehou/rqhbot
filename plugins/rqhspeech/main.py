@@ -22,7 +22,7 @@ from .data_manager import (
 from .speech_config import SpeechConfig
 from .command_handler import CommandHandler
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rqhspeech")
 
 
 class RqhSpeechPlugin(PluginBase):
@@ -38,10 +38,10 @@ class RqhSpeechPlugin(PluginBase):
         await super().on_load(api, event_bus, plugin_dir)
         # 初始化命令处理器
         self.cmd_handler = CommandHandler(self.reply_with_event)
-        logger.info(f"插件 {self.name} 已加载 (v{self.version})")
+        logger.info(f"已加载 (v{self.version})")
 
     async def on_unload(self) -> None:
-        logger.info(f"插件 {self.name} 卸载中")
+        logger.info(f"卸载中")
 
     # ==================== 消息处理 ====================
 
