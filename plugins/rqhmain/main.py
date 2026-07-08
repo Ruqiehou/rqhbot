@@ -1,6 +1,4 @@
 # ==================== 系统必要导入 ====================
-import os
-import sys
 import json
 import random
 import logging
@@ -9,13 +7,7 @@ from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
 from sdk.core import MessageSegment
 
 # ==================== 功能自主导入 ====================
-# 添加插件目录到 Python 路径，确保本地模块可导入
-_plugin_dir = os.path.dirname(os.path.abspath(__file__))
-if _plugin_dir not in sys.path:
-    sys.path.insert(0, _plugin_dir)
-
 from .abcapi import *
-from zm import zimu
 
 logger = logging.getLogger("rqhmain")
 

@@ -10,13 +10,7 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
-# 处理相对导入
-if __name__ == "__main__":
-    import sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from plugins.rqhspeech.speech_config import SpeechConfig
-else:
-    from .speech_config import SpeechConfig
+from .speech_config import SpeechConfig
 
 
 class DailyArchiver:

@@ -19,8 +19,7 @@ from .data_manager import (
     user_exists,
     check_and_handle_week_transition,
 )
-from .speech_config import SpeechConfig
-from .command_handler import CommandHandler
+from .speech_config import Speech
 
 logger = logging.getLogger("rqhspeech")
 
