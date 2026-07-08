@@ -30,11 +30,11 @@ class EventBus:
             handlers.remove(handler)
 
     async def publish(self, event: BaseEvent) -> None:
-        handlers = self._handlers.get(type(event), [])
+        # 快照：冻结当前处理器列表，防止分发过程中变更
+        handlers = list(self._handlers.get(type(event), []))
         if not handlers:
             return
 
-        # 批量创建任务，统一 gather 减少调度开销
         tasks = [
             asyncio.create_task(self._run_handler(handler, event))
             for handler in handlers

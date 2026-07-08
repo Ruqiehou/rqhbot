@@ -614,6 +614,50 @@ class NapCatClient(IClient):
             "message": msg_segments,
         })
 
+    async def send_event_message(
+        self,
+        event: Any,
+        message: str = "",
+        message_segments: Optional[List[MessageSegmentType]] = None,
+        image_path: Optional[str] = None,
+        reply_message_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """按事件来源统一回复（自动识别群聊/私聊）
+
+        Args:
+            event: 事件对象（需有 group_id 或 user_id 属性）
+            message: 文本消息（与 message_segments 二选一）
+            message_segments: 消息段列表（与 message 二选一）
+            image_path: 图片路径（可选）
+            reply_message_id: 回复消息 ID（可选）
+
+        Returns:
+            API 调用结果
+        """
+        group_id = getattr(event, "group_id", None)
+        user_id = getattr(event, "user_id", None)
+
+        if group_id:
+            if message_segments is not None:
+                return await self.send_group_message_segments(
+                    group_id, message_segments, reply_message_id=reply_message_id,
+                )
+            return await self.send_group_message(
+                group_id, message, image_path=image_path, reply_message_id=reply_message_id,
+            )
+
+        if user_id:
+            if message_segments is not None:
+                return await self.send_private_message_segments(
+                    user_id, message_segments, reply_message_id=reply_message_id,
+                )
+            return await self.send_private_message(
+                user_id, message, image_path=image_path, reply_message_id=reply_message_id,
+            )
+
+        logger.warning("send_event_message: 事件无 group_id 或 user_id，无法回复")
+        return {}
+
     async def delete_message(self, message_id: int) -> Dict[str, Any]:
         """撤回/删除消息
         

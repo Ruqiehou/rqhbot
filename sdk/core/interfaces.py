@@ -140,6 +140,17 @@ class IClient(Protocol):
         """发送图文混排私聊消息（数组格式）"""
         ...
 
+    async def send_event_message(
+        self,
+        event: Any,
+        message: str = "",
+        message_segments: Optional[List[MessageSegmentType]] = None,
+        image_path: Optional[str] = None,
+        reply_message_id: Optional[int] = None,
+    ) -> APIResponse:
+        """按事件来源统一回复（自动识别群聊/私聊）"""
+        ...
+
     # ---- 消息管理 ----
     async def delete_message(self, message_id: int) -> APIResponse:
         """撤回/删除消息"""

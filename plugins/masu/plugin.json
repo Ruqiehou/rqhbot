@@ -1,0 +1,10 @@
+{
+  "name": "masu",
+  "version": "1.0.0",
+  "description": "AI 聊天插件 — 基于 OpenAI API 的群聊/私聊对话",
+  "author": "RqhBot Team",
+  "enabled": true,
+  "priority": 50,
+  "dependencies": [],
+  "python_requires": ">=3.8"
+}

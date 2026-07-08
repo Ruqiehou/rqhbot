@@ -3,229 +3,89 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
-![Version](https://img.shields.io/badge/Version-3.5.0-orange.svg)
+![Version](https://img.shields.io/badge/Version-3.7.0-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![OneBot](https://img.shields.io/badge/OneBot-11-00b894.svg)
 ![NapCat](https://img.shields.io/badge/NapCat-supported-6c5ce7.svg)
 
-基于 **NapCat / OneBot 11** 协议的 Python QQ 机器人开发框架。
-
-它提供强类型事件模型、异步 WebSocket 客户端、插件系统、配置管理和常用 Bot API 封装，适合快速搭建个人机器人、群管理机器人和业务自动化机器人。
-
-[文档索引](docs/01_INDEX.md) · [快速开始](docs/03_QUICK_START.md) · [配置指南](docs/04_CONFIG_GUIDE.md) · [API 参考](docs/05_API.md) · [插件开发](docs/06_PLUGIN_DEVELOPMENT.md)
+基于 **NapCat OneBot11** 协议的 Python QQ 机器人框架。
 
 </div>
 
 ---
 
-## 特性
+## 三层结构
 
-- **异步架构**：基于 `asyncio` + `websockets`，适合高并发消息处理。
-- **NapCat / OneBot 11 支持**：通过 WebSocket 与 NapCat 通信。
-- **强类型事件模型**：群消息、私聊消息、通知、请求等事件均有清晰的数据结构。
-- **简洁 Bot API**：封装发送消息、撤回消息、群管理、好友管理等常用能力。
-- **插件系统**：支持插件化开发、热加载、配置隔离和事件订阅。
-- **事件总线**：插件与核心逻辑解耦，便于扩展。
-- **配置管理**：支持 YAML 配置和环境变量。
-- **日志系统**：内置日志配置，便于调试和线上排查。
-
-## 预览
-
-```python
-from sdk import BotClient
-
-bot = BotClient()
-
-@bot.on_group_message()
-async def hello(event):
-    if event.message.get_plain_text() == "hello":
-        await bot.api.send_group_message(event.group_id, "你好！")
-
-bot.start()
+```
+run.py
+ └── sdk  3.7.0 (协议 / 插件 / 配置)
+      └── plugins/  8 个插件
 ```
 
-## 环境要求
+## 8 个插件
 
-- Python 3.8+
-- 已安装并配置 NapCat
-- NapCat WebSocket 服务已启动
+| 插件 | 功能 | 代码量 | 数据存储 |
+|------|------|--------|----------|
+| masu | AI 聊天（OpenAI） | ~350 行 | 内存 session |
+| rqhspeech | 发言统计 / 排行榜 | ~700 行 | SQLite |
+| rqhmain | 综合（运势/天气/新闻/词云/总结） | ~900 行 | JSONL |
+| pintu | 拼图游戏 | ~500 行 | 内存 |
+| rqhshen | 修仙游戏 | ~400 行 | JSON |
+| rqhwenda | 问答匹配 | ~300 行 | JSON |
+| theme_diary | 主题日记 | ~200 行 | Markdown |
+| group_summary | 群聊总结 | ~200 行 | JSON |
 
-NapCat 相关链接：
+## 数据流
 
-- [NapCat 安装指南](https://napneko.github.io/guide/napcat)
-- [NapCat 文档站](https://napneko.github.io/)
+```
+用户消息 → NapCat WS → SDK EventBus → 插件 filter → 插件 handler → SDK API → NapCat → QQ
+```
+
+当前 SDK 特性：事件总线快照分发、filter 命中并发执行、任务异常统一记录、插件卸载顺序优化、`send_event_message` 统一回复。
+
+## 核心模块
+
+| 模块 | 说明 |
+|------|------|
+| `NapCatClient` | WebSocket 客户端 + OneBot API 封装 |
+| `EventBus` | 事件总线（快照分发，并发 handler） |
+| `PluginBase` | 插件基类（配置/数据/任务管理） |
+| `PluginManager` | 插件加载与生命周期管理 |
+| `BotClient` | 装饰器模式机器人入口 |
 
 ## 快速开始
 
-### 1. 克隆项目
-
-```bash
-git clone https://github.com/rqhbot/rqhbot.git
-cd rqhbot
-```
-
-如果你是直接下载源码压缩包，进入项目目录即可。
-
-### 2. 安装依赖
-
 ```bash
 pip install -r requirements.txt
-```
-
-开发环境可额外安装：
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-### 3. 创建配置文件
-
-项目提供了配置示例文件：
-
-```bash
-cp config.yaml.example config.yaml
-```
-
-Windows PowerShell 可使用：
-
-```powershell
-Copy-Item config.yaml.example config.yaml
-```
-
-然后编辑 `config.yaml`：
-
-```yaml
-napcat:
-  ws_url: "ws://localhost:3001"
-  access_token: ""
-
-bot:
-  plugin_dir: "plugins"
-  load_plugins: true
-
-settings:
-  debug: false
-```
-
-### 4. 启动机器人
-
-```bash
+cp config.yaml.example config.yaml   # 编辑配置
 python run.py
 ```
-
-启动前请确保 NapCat 已登录 QQ，并且 WebSocket 地址与 `config.yaml` 中的 `napcat.ws_url` 一致。
 
 ## 项目结构
 
 ```text
 rqhbot/
-├── sdk/                    # SDK 核心代码
-│   ├── config/             # 配置管理
-│   ├── core/               # WebSocket 客户端、事件模型、API 封装
-│   └── pluginsystem/       # 插件系统
-├── plugins/                # 插件目录
-├── docs/                   # 项目文档
-├── tests/                  # 单元测试
-├── config.yaml.example     # 配置示例
-├── requirements.txt        # 运行依赖
-├── requirements-dev.txt    # 开发依赖
-├── pyproject.toml          # 项目元数据与工具配置
-└── run.py                  # 启动入口
+├── sdk/              # 框架核心
+├── plugins/          # 8 个插件
+├── docs/             # 文档
+├── tests/            # 测试
+├── config.yaml.example
+├── requirements.txt
+├── pyproject.toml
+├── setup.py
+└── run.py
 ```
 
-## 核心模块
-
-| 模块 | 说明 |
-| --- | --- |
-| `sdk.BotClient` | 面向用户的机器人入口，支持装饰器注册事件 |
-| `sdk.core.NapCatClient` | 底层 WebSocket 客户端 |
-| `sdk.core.BotAPI` | OneBot / NapCat API 封装 |
-| `sdk.core.EventBus` | 事件总线，用于插件和核心解耦 |
-| `sdk.pluginsystem.PluginBase` | 插件基类 |
-| `sdk.pluginsystem.HotReloadPluginManager` | 插件热加载管理器 |
-
-## 插件示例
-
-在 `plugins/example/main.py` 中创建插件：
-
-```python
-from sdk import PluginBase, group_server
-
-
-class ExamplePlugin(PluginBase):
-    name = "example"
-    version = "1.0.0"
-    description = "示例插件"
-
-    @group_server(equals="ping")
-    async def on_ping(self, event):
-        if self.api is None:
-            return
-        await self.api.send_group_message(event.group_id, "pong")
-```
-
-更多写法请查看：[插件开发文档](docs/06_PLUGIN_DEVELOPMENT.md)。
-
-## 文档导航
-
-- [文档索引](docs/01_INDEX.md)
-- [项目概述](docs/02_OVERVIEW.md)
-- [快速开始](docs/03_QUICK_START.md)
-- [配置指南](docs/04_CONFIG_GUIDE.md)
-- [API 参考](docs/05_API.md)
-- [插件开发](docs/06_PLUGIN_DEVELOPMENT.md)
-
-## 测试
+## 一键安装
 
 ```bash
-python -m pytest tests/ -v
+pip install .
 ```
-
-如果需要开发依赖：
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-## 适用场景
-
-- QQ 群自动回复机器人
-- 群管理与数据统计机器人
-- AI 聊天机器人接入
-- 消息推送与业务通知
-- 自定义自动化工作流
-
-## 技术栈
-
-- Python 3.8+
-- asyncio
-- websockets
-- PyYAML
-- python-dotenv
-- aiohttp / requests
-- NapCat / OneBot 11
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request。
-
-建议流程：
-
-1. Fork 本仓库
-2. 创建功能分支
-3. 提交修改并补充必要测试
-4. 发起 Pull Request
-
-## 许可证
-
-本项目采用 MIT License。
 
 ---
 
 <div align="center">
 
-**RqhBot v3.5.0**
-
-Made by RqhBot Team
+**RqhBot v3.7.0**
 
 </div>
