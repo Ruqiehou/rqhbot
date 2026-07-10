@@ -374,6 +374,60 @@ SUB_REALM_THRESHOLDS = generate_sub_thresholds()
 # 飞升境界等级列表
 ASCENSION_LEVELS = [9, 49, 159, 199, 279]
 
+# ==================== 关键词配置 ====================
+
+RANK_KEYWORDS = ["排行榜", "榜单", "排名"]
+STATS_KEYWORDS = ["统计", "数据", "修为", "境界", "等级"]
+CULTIVATE_KEYWORDS = ["开灵", "打坐", "突破", "修炼", "修行", "修仙"]
+HELP_KEYWORDS = ["帮助", "使用说明", "功能"]
+
+
+def get_help_text() -> str:
+    return """📜 修仙插件帮助
+
+✨ 修仙功能
+- 开灵 - 踏入仙途，开始修仙
+- 打坐 - 闭目修炼，增加修为
+- 突破 - 尝试突破境界
+- 修炼 - 查看修炼状态
+
+🏆 排行榜功能
+- 排行榜 - 查看修仙排行榜
+- 榜单 - 查看修仙榜单
+
+📊 统计功能
+- 统计 - 查看您的修仙统计
+- 数据 - 查看修仙数据
+- 境界 - 查看当前境界
+- 修为 - 查看当前修为
+
+使用方法：直接发送对应关键词即可
+"""
+
+
+def build_player_stats_msg(player) -> str:
+    return (
+        f"📊 修仙统计\n\n"
+        f"👤 用户: {player.username}\n"
+        f"境界: {player.current_realm_name}\n"
+        f"当前修为: {player.exp}\n"
+        f"下境界所需: {player.next_threshold if player.next_threshold != float('inf') else 'MAX'}\n"
+        f"总突破次数: {player.total_breakthroughs}\n"
+        f"总获得修为: {player.total_exp_gained}"
+    )
+
+
+def build_player_status_msg(player) -> str:
+    return (
+        f"✨ 修炼状态\n\n"
+        f"👤 用户: {player.username}\n"
+        f"境界: {player.current_realm_name}\n"
+        f"修为: {player.exp}/{player.next_threshold if player.next_threshold != float('inf') else 'MAX'}\n"
+        f"总突破: {player.total_breakthroughs} 次\n"
+        f"总修为: {player.total_exp_gained}"
+    )
+
+
 class CultivationSystem:
     def __init__(self, data_dir=None):
         if data_dir is None:
