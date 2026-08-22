@@ -15,7 +15,12 @@ from sdk.core import NapCatClient
 from sdk.core.event_bus import EventBus
 from sdk.core.events import (
     BaseEvent,
+    EssenceMsgNotice,
+    FriendAddNotice,
+    GroupAdminNotice,
+    GroupCardNotice,
     GroupMessageEvent,
+    GroupUploadNotice,
     NoticeEvent,
     PrivateMessageEvent,
     RequestEvent,

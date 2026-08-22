@@ -31,6 +31,18 @@ class Message:
     has_rps: bool = False                                     # 是否含猜拳
     has_poke: bool = False                                    # 是否含戳一戳
     has_sticker: bool = False                                 # 是否含收藏表情包
+    at_user_ids: List[int] = field(default_factory=list)     # 被 @ 的用户列表
+    has_reply: bool = False                                   # 是否含回复消息
+    reply_message_id: int = 0                                 # 回复的消息 ID
+    has_image: bool = False                                   # 是否含图片
+    has_video: bool = False                                   # 是否含视频
+    has_record: bool = False                                  # 是否含语音
+    has_file: bool = False                                    # 是否含文件
+    has_forward: bool = False                                 # 是否含合并转发
+    has_music: bool = False                                   # 是否含音乐卡片
+    has_json: bool = False                                    # 是否含 JSON 卡片
+    has_xml: bool = False                                     # 是否含 XML
+    has_markdown: bool = False                                # 是否含 Markdown
 
     @classmethod
     def from_raw(cls, value: Any, raw_message: str = "") -> Self:
@@ -39,7 +51,19 @@ class Message:
             segments: List[MessageSegment] = []
             face_ids: List[int] = []
             face_names: List[str] = []
+            at_user_ids: List[int] = []
             has_sticker = False
+            has_reply = False
+            reply_message_id = 0
+            has_image = False
+            has_video = False
+            has_record = False
+            has_file = False
+            has_forward = False
+            has_music = False
+            has_json = False
+            has_xml = False
+            has_markdown = False
 
             for item in value:
                 if not isinstance(item, dict):
@@ -66,6 +90,7 @@ class Message:
                     text_parts.append("[戳一戳]")
                 elif seg_type == "image":
                     sub_type = int(seg_data.get("sub_type", 0))
+                    has_image = True
                     if sub_type == 1:
                         has_sticker = True
                         summary = seg_data.get("summary") or "表情包"
@@ -73,6 +98,45 @@ class Message:
                     else:
                         file_name = seg_data.get("file", "图片")
                         text_parts.append(f"[图片:{file_name}]")
+                elif seg_type == "at":
+                    qq = int(seg_data.get("qq", 0))
+                    at_user_ids.append(qq)
+                    text_parts.append(f"[CQ:at,qq={qq}]")
+                elif seg_type == "reply":
+                    has_reply = True
+                    reply_message_id = int(seg_data.get("id", 0))
+                    text_parts.append(f"[回复:{reply_message_id}]")
+                elif seg_type == "video":
+                    has_video = True
+                    file_name = seg_data.get("file", "视频")
+                    text_parts.append(f"[视频:{file_name}]")
+                elif seg_type == "record":
+                    has_record = True
+                    text_parts.append("[语音]")
+                elif seg_type == "file":
+                    has_file = True
+                    file_name = seg_data.get("file_name") or seg_data.get("file", "文件")
+                    text_parts.append(f"[文件:{file_name}]")
+                elif seg_type == "forward":
+                    has_forward = True
+                    text_parts.append("[合并转发]")
+                elif seg_type == "node":
+                    has_forward = True
+                    name = seg_data.get("name", "未知")
+                    text_parts.append(f"[转发节点:{name}]")
+                elif seg_type == "music":
+                    has_music = True
+                    title = seg_data.get("title", "音乐")
+                    text_parts.append(f"[音乐:{title}]")
+                elif seg_type == "json":
+                    has_json = True
+                    text_parts.append("[JSON卡片]")
+                elif seg_type == "xml":
+                    has_xml = True
+                    text_parts.append("[XML消息]")
+                elif seg_type == "markdown":
+                    has_markdown = True
+                    text_parts.append("[Markdown]")
 
             plain_text = "".join(text_parts)
             return cls(
@@ -81,10 +145,22 @@ class Message:
                 segments=segments,
                 face_ids=face_ids,
                 face_names=face_names,
+                at_user_ids=at_user_ids,
                 has_dice="[骰子]" in plain_text,
                 has_rps="[猜拳]" in plain_text,
                 has_poke="[戳一戳]" in plain_text,
                 has_sticker=has_sticker,
+                has_reply=has_reply,
+                reply_message_id=reply_message_id,
+                has_image=has_image,
+                has_video=has_video,
+                has_record=has_record,
+                has_file=has_file,
+                has_forward=has_forward,
+                has_music=has_music,
+                has_json=has_json,
+                has_xml=has_xml,
+                has_markdown=has_markdown,
             )
 
         text = str(value or raw_message or "")
@@ -226,6 +302,11 @@ class NoticeEvent(BaseEvent):
             "group_ban":      GroupBanNotice,
             "group_recall":   GroupRecallNotice,
             "friend_recall":  FriendRecallNotice,
+            "group_admin":    GroupAdminNotice,
+            "group_upload":   GroupUploadNotice,
+            "group_card":     GroupCardNotice,
+            "friend_add":     FriendAddNotice,
+            "essence_msg":    EssenceMsgNotice,
         }
         if notice_type == "notify" and raw_subtype == "poke":
             target = PokeNotice
@@ -342,6 +423,81 @@ class PokeNotice(NoticeEvent):
         return cls(
             **{k: v for k, v in base.__dict__.items()},
             target_id=int(data.get("target_id", 0)),
+        )
+
+
+@dataclass
+class GroupAdminNotice(NoticeEvent):
+    """群管理员变更"""
+    notice_type: str = "group_admin"
+    sub_type: str = ""
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = NoticeEvent._build(data)
+        return cls(
+            **{k: v for k, v in base.__dict__.items()},
+            sub_type=str(data.get("sub_type", "")),
+        )
+
+
+@dataclass
+class GroupUploadNotice(NoticeEvent):
+    """群文件上传"""
+    notice_type: str = "group_upload"
+    file: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = NoticeEvent._build(data)
+        return cls(
+            **{k: v for k, v in base.__dict__.items()},
+            file=data.get("file", {}),
+        )
+
+
+@dataclass
+class GroupCardNotice(NoticeEvent):
+    """群成员名片修改"""
+    notice_type: str = "group_card"
+    card_new: str = ""
+    card_old: str = ""
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = NoticeEvent._build(data)
+        return cls(
+            **{k: v for k, v in base.__dict__.items()},
+            card_new=str(data.get("card_new", "")),
+            card_old=str(data.get("card_old", "")),
+        )
+
+
+@dataclass
+class FriendAddNotice(NoticeEvent):
+    """好友添加"""
+    notice_type: str = "friend_add"
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = NoticeEvent._build(data)
+        return cls(**{k: v for k, v in base.__dict__.items()})
+
+
+@dataclass
+class EssenceMsgNotice(NoticeEvent):
+    """精华消息变更"""
+    notice_type: str = "essence_msg"
+    sub_type: str = ""
+    message_id: int = 0
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = NoticeEvent._build(data)
+        return cls(
+            **{k: v for k, v in base.__dict__.items()},
+            sub_type=str(data.get("sub_type", "")),
+            message_id=int(data.get("message_id", 0)),
         )
 
 

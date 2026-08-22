@@ -90,6 +90,99 @@ class MessageSegment:
             data = json.dumps(data, ensure_ascii=False)
         return {"type": "json", "data": {"data": data}}
 
+    @staticmethod
+    def video(file: str) -> MessageSegmentType:
+        """视频消息段"""
+        return {"type": "video", "data": {"file": file}}
+
+    @staticmethod
+    def record(file: str, magic: bool = False) -> MessageSegmentType:
+        """语音消息段"""
+        data: Dict[str, Any] = {"file": file}
+        if magic:
+            data["magic"] = True
+        return {"type": "record", "data": data}
+
+    @staticmethod
+    def file(file: str, file_name: str = "") -> MessageSegmentType:
+        """文件消息段"""
+        data: Dict[str, Any] = {"file": file}
+        if file_name:
+            data["file_name"] = file_name
+        return {"type": "file", "data": data}
+
+    @staticmethod
+    def forward(res_id: str = "", news: Optional[List[Dict[str, Any]]] = None) -> MessageSegmentType:
+        """合并转发消息段"""
+        data: Dict[str, Any] = {}
+        if res_id:
+            data["id"] = res_id
+        if news:
+            data["news"] = news
+        return {"type": "forward", "data": data}
+
+    @staticmethod
+    def node(name: str, uin: int, content: List[MessageSegmentType]) -> MessageSegmentType:
+        """合并转发节点"""
+        return {
+            "type": "node",
+            "data": {
+                "name": name,
+                "uin": str(uin),
+                "content": content,
+            },
+        }
+
+    @staticmethod
+    def music(
+        type_: str,
+        id_: str = "",
+        url: str = "",
+        title: str = "",
+        content: str = "",
+        image: str = "",
+    ) -> MessageSegmentType:
+        """音乐卡片消息段
+
+        Args:
+            type_: 平台类型（qq / 163 / kugou / mfeel / bilibili）
+            id_: 音乐平台的歌曲 ID
+            url: 点击后跳转的链接
+            title: 标题
+            content: 简介
+            image: 封面图
+        """
+        data: Dict[str, Any] = {"type": type_}
+        if id_:
+            data["id"] = id_
+        if url:
+            data["url"] = url
+        if title:
+            data["title"] = title
+        if content:
+            data["content"] = content
+        if image:
+            data["image"] = image
+        return {"type": "music", "data": data}
+
+    @staticmethod
+    def markdown(content: str) -> MessageSegmentType:
+        """Markdown 消息段"""
+        return {"type": "markdown", "data": {"content": content}}
+
+    @staticmethod
+    def mface(emoji_id: str, emoji_type: int = 0) -> MessageSegmentType:
+        """表情商店表情消息段"""
+        data: Dict[str, Any] = {"emoji_id": emoji_id}
+        if emoji_type:
+            data["emoji_type"] = emoji_type
+        return {"type": "mface", "data": data}
+
+    @staticmethod
+    def xml(data: str) -> MessageSegmentType:
+        """XML 消息段"""
+        return {"type": "xml", "data": {"data": data}}
+
 
 class NapCatClient(IClient):
     """NapCat 客户端 —— 实现 IClient Protocol"""
