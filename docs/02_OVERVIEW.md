@@ -13,7 +13,8 @@ RqhBot 是一个基于 NapCat OneBot11 协议的 Python QQ 机器人 SDK，提�
 
 ### 强类型事件
 - `GroupMessageEvent`、`PrivateMessageEvent` 等均为强类型 dataclass
-- `NoticeEvent` 细分：`GroupIncreaseNotice`、`GroupBanNotice` 等
+- `Message` 对象自动解析 20+ 种消息段类型（text/image/video/record/file/forward/music/json/xml/markdown 等）
+- `NoticeEvent` 细分：`GroupIncreaseNotice`、`GroupBanNotice`、`GroupAdminNotice`、`GroupCardNotice`、`EssenceMsgNotice` 等
 - `RequestEvent` 细分：`FriendRequestEvent`、`GroupRequestEvent`
 - 自动按类型分发，无需手动解析原始 dict
 

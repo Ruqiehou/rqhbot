@@ -109,6 +109,15 @@ await self.api.send_group_message_segments(
 | `MessageSegment.dice()` | 骰子 |
 | `MessageSegment.rps()` | 猜拳 |
 | `MessageSegment.json_data(data)` | JSON 卡片 |
+| `MessageSegment.video(file)` | 视频 |
+| `MessageSegment.record(file, magic=False)` | 语音 |
+| `MessageSegment.file(file, file_name="")` | 文件 |
+| `MessageSegment.forward(res_id="", news=None)` | 合并转发 |
+| `MessageSegment.node(name, uin, content)` | 合并转发节点 |
+| `MessageSegment.music(type_, id_="", url="", title="", content="", image="")` | 音乐卡片 |
+| `MessageSegment.markdown(content)` | Markdown |
+| `MessageSegment.mface(emoji_id, emoji_type=0)` | 表情商店表情 |
+| `MessageSegment.xml(data)` | XML 消息 |
 
 #### send_private_message_segments(user_id, segments, reply_message_id)
 
@@ -336,6 +345,10 @@ segments = [
     MessageSegment.dice(),
     MessageSegment.rps(),
     MessageSegment.reply(10001),
+    MessageSegment.music("qq", id_="001", title="歌曲名", url="https://..."),
+    MessageSegment.markdown("**粗体**"),
+    MessageSegment.mface("emoji_id_123"),
+    MessageSegment.xml("<xml>...</xml>"),
 ]
 ```
 
@@ -349,11 +362,36 @@ segments = [
 | `event.message.raw_message` | 原始字符串内容 |
 | `event.message.segments` | 原始消息段列表（适合遍历图片/@等） |
 | `event.message.face_ids` | 表情 ID 列表 |
+| `event.message.face_names` | 表情名称列表 |
 | `event.message.has_dice` | 是否含骰子 |
 | `event.message.has_rps` | 是否含猜拳 |
+| `event.message.has_poke` | 是否含戳一戳 |
+| `event.message.has_sticker` | 是否含收藏表情包 |
+| `event.message.at_user_ids` | 被 @ 的用户 ID 列表 |
+| `event.message.has_reply` | 是否含回复消息 |
+| `event.message.reply_message_id` | 回复的消息 ID |
+| `event.message.has_image` | 是否含图片 |
+| `event.message.has_video` | 是否含视频 |
+| `event.message.has_record` | 是否含语音 |
+| `event.message.has_file` | 是否含文件 |
+| `event.message.has_forward` | 是否含合并转发 |
+| `event.message.has_music` | 是否含音乐卡片 |
+| `event.message.has_json` | 是否含 JSON 卡片 |
+| `event.message.has_xml` | 是否含 XML |
+| `event.message.has_markdown` | 是否含 Markdown |
 
-**示例：遍历图片和 @：**
+**示例：快速判断消息类型：**
 ```python
+@filter_registry.group_server(custom=lambda e: e.message.has_image)
+async def on_image(self, event: GroupMessageEvent):
+    await self.reply_with_event(event, "收到图片！")
+
+# 快速获取被 @ 的人
+if event.message.at_user_ids:
+    target = event.message.at_user_ids[0]
+    await self.reply_with_event(event, f"被 @ 的人是 {target}")
+
+# 遍历所有消息段
 for segment in event.message.segments:
     seg_type = segment.get("type")
     data = segment.get("data", {})
@@ -414,6 +452,11 @@ class PrivateMessageEvent:
 | `GroupRecallNotice` | 群消息撤回 |
 | `FriendRecallNotice` | 好友消息撤回 |
 | `PokeNotice` | 戳一戳通知 |
+| `GroupAdminNotice` | 管理员变更（sub_type: set/unset） |
+| `GroupUploadNotice` | 群文件上传（含 file 字典） |
+| `GroupCardNotice` | 群名片修改（含 card_new/card_old） |
+| `FriendAddNotice` | 好友添加 |
+| `EssenceMsgNotice` | 精华消息变更（含 sub_type/message_id） |
 
 ### RequestEvent 子类
 
