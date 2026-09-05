@@ -548,16 +548,16 @@ class NapCatClient(IClient):
                    max_retries: int = 3, retry_delay: float = 1.0) -> Dict[str, Any]:
         """
         调用API（支持重试）
-        
+
         Args:
             action: API动作名称
             params: 参数字典
             max_retries: 最大重试次数
             retry_delay: 重试延迟（秒）
-            
+
         Returns:
             API响应数据
-            
+
         Raises:
             ConnectionError: 未连接
             TimeoutError: API调用超时
@@ -567,48 +567,56 @@ class NapCatClient(IClient):
             raise ConnectionError("未连接到NapCat服务器")
 
         last_error = None
-        
-        for attempt in range(max_retries):
-            echo_id = f"rqhbot-{uuid.uuid4().hex}"
-            message = {
-                "action": action,
-                "params": params or {},
-                "echo": echo_id
-            }
+        pending_futures: List[asyncio.Future[Any]] = []
 
-            future = asyncio.Future()
+        try:
+            for attempt in range(max_retries):
+                echo_id = f"rqhbot-{uuid.uuid4().hex}"
+                message = {
+                    "action": action,
+                    "params": params or {},
+                    "echo": echo_id
+                }
 
-            # 插入前淘汰最旧的，防止 echo_map 无限增长
-            if len(self.echo_map) >= self._echo_maxsize:
-                self._evict_oldest_echo()
+                future = asyncio.Future()
+                pending_futures.append(future)
 
-            self.echo_map[echo_id] = future
+                # 插入前淘汰最旧的，防止 echo_map 无限增长
+                if len(self.echo_map) >= self._echo_maxsize:
+                    self._evict_oldest_echo()
 
-            try:
-                await self.ws.send(json.dumps(message))
-                result = await asyncio.wait_for(future, timeout=30)
+                self.echo_map[echo_id] = future
 
-                if result.get("status") == "ok":
-                    return result.get("data", {})
-                else:
-                    last_error = Exception(f"API调用失败: {result.get('msg', '未知错误')}")
+                try:
+                    await self.ws.send(json.dumps(message))
+                    result = await asyncio.wait_for(future, timeout=30)
 
-            except asyncio.TimeoutError:
-                last_error = TimeoutError(f"API调用超时 (尝试 {attempt + 1}/{max_retries})")
-            except Exception as e:
-                last_error = e
-            finally:
-                self.echo_map.pop(echo_id, None)
-            
-            # 如果不是最后一次尝试，等待后重试
-            if attempt < max_retries - 1:
-                logger.warning(f"API调用失败，{retry_delay}秒后重试 ({attempt + 1}/{max_retries}): {last_error}")
-                await asyncio.sleep(retry_delay)
-        
-        # 所有重试都失败
-        if last_error:
-            raise last_error
-        raise Exception(f"API调用失败: 未知错误 (action={action})")
+                    if result.get("status") == "ok":
+                        return result.get("data", {})
+                    else:
+                        last_error = Exception(f"API调用失败: {result.get('msg', '未知错误')}")
+
+                except asyncio.TimeoutError:
+                    last_error = TimeoutError(f"API调用超时 (尝试 {attempt + 1}/{max_retries})")
+                except Exception as e:
+                    last_error = e
+                finally:
+                    self.echo_map.pop(echo_id, None)
+
+                # 如果不是最后一次尝试，等待后重试
+                if attempt < max_retries - 1:
+                    logger.warning(f"API调用失败，{retry_delay}秒后重试 ({attempt + 1}/{max_retries}): {last_error}")
+                    await asyncio.sleep(retry_delay)
+
+            # 所有重试都失败
+            if last_error:
+                raise last_error
+            raise Exception(f"API调用失败: 未知错误 (action={action})")
+        finally:
+            # 清理所有未完成的 futures，防止内存泄漏
+            for future in pending_futures:
+                if not future.done():
+                    future.cancel()
     
 
 

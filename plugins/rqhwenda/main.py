@@ -221,14 +221,14 @@ class RqhWendaPlugin(PluginBase):
         parts: list[str] = []
         if answer_manager.precise_data:
             parts.append("【精确问答】")
-            for q in answer_manager.precise_data:
-                parts.append(f"• [精确] {q}")
+            for q, a in answer_manager.precise_data.items():
+                parts.append(f"[精确] 问：{q}\n答：{a}")
         if answer_manager.fuzzy_data:
             if answer_manager.precise_data:
                 parts.append("")
             parts.append("【模糊问答】")
-            for q in answer_manager.fuzzy_data:
-                parts.append(f"• [模糊] {q}")
+            for q, a in answer_manager.fuzzy_data.items():
+                parts.append(f"[模糊] 问：{q}\n答：{a}")
 
         total = len(answer_manager.precise_data) + len(answer_manager.fuzzy_data)
         await self.api.send_group_message(
@@ -240,12 +240,14 @@ class RqhWendaPlugin(PluginBase):
         if uid in hmd:
             await self.api.send_group_message(group_id, "你没有权限查看问答")
             return
-        data = answer_manager.load_all_data()
+        with answer_manager.lock:
+            data = [("精确", q, a) for q, a in answer_manager.precise_data.items()]
+            data.extend(("模糊", q, a) for q, a in answer_manager.fuzzy_data.items())
         if not data:
             await self.api.send_group_message(group_id, "还没有任何问答记录")
             return
-        sample = random.sample(list(data.items()), min(10, len(data)))
-        lines = [f"问：{q}\n答：{a}" for q, a in sample]
+        sample = random.sample(data, min(10, len(data)))
+        lines = [f"[{kind}] 问：{q}\n答：{a}" for kind, q, a in sample]
         await self.api.send_group_message(group_id, f"随机选取的问答：\n" + "\n".join(lines))
 
     async def _clear_all_answers(self, group_id: int, uid: str) -> None:

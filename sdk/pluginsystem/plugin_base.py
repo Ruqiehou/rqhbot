@@ -181,20 +181,23 @@ class PluginBase:
     def _collect_message_handlers(self) -> None:
         self._message_handlers = {"group": [], "private": []}
 
-        # 只遍历类定义的属性，避免遍历继承链的所有动态属性
-        for attr_name in self.__class__.__dict__:
-            handler = getattr(self, attr_name, None)
-            if handler is None:
-                continue
-            source = getattr(handler, "__func__", handler)
-            rules: List[MessageFilterRule] = list(getattr(source, "_rqhbot_message_filters", []))
-            for rule in rules:
-                if rule.message_type in self._message_handlers:
-                    self._message_handlers[rule.message_type].append({
-                        "handler": handler,
-                        "rule": rule,
-                        "name": attr_name,
-                    })
+        seen = set()
+        for cls in type(self).__mro__:
+            for attr_name, source in vars(cls).items():
+                if attr_name in seen:
+                    continue
+                seen.add(attr_name)
+                rules = getattr(source, "_rqhbot_message_filters", ())
+                if not rules:
+                    continue
+                handler = getattr(self, attr_name)
+                for rule in rules:
+                    if rule.message_type in self._message_handlers:
+                        self._message_handlers[rule.message_type].append({
+                            "handler": handler,
+                            "rule": rule,
+                            "name": attr_name,
+                        })
 
     async def _dispatch_filtered_message(self, message_type: str, event: Any) -> bool:
         matched = False

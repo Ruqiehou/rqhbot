@@ -55,11 +55,13 @@ class AnswerManager:
         if not self.dirty:
             return True
         with self.write_lock:
-            success = self._save_file(self.precise_file_path, self.precise_data)
-            success = self._save_file(self.fuzzy_file_path, self.fuzzy_data) and success
-            if success:
+            # 分别保存两个文件，确保都成功才清除脏标记
+            precise_success = self._save_file(self.precise_file_path, self.precise_data)
+            fuzzy_success = self._save_file(self.fuzzy_file_path, self.fuzzy_data)
+            # 只有两个文件都保存成功才清除脏标记
+            if precise_success and fuzzy_success:
                 self.dirty = False
-            return success
+            return precise_success and fuzzy_success
 
     def load_all_data(self) -> Dict[str, str]:
         with self.lock:

@@ -69,9 +69,21 @@ class GroupSummaryPlugin(PluginBase):
             "text": text,
         }
         file_path = self.data_dir / f"{now.strftime('%Y-%m-%d')}.jsonl"
+        line = json.dumps(row, ensure_ascii=False) + "\n"
+
         async with self._write_lock:
-            with open(file_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            loop = asyncio.get_running_loop()
+            future = loop.run_in_executor(None, self._write_file, file_path, line)
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                await future
+                raise
+
+    def _write_file(self, file_path: Path, line: str):
+        """同步写入文件（在线程池中执行）"""
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(line)
 
     async def _handle_summary_command(self, event: GroupMessageEvent, text: str):
         group_id = str(event.group_id)

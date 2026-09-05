@@ -5,11 +5,27 @@
 3. 统一数据操作接口
 """
 
+import asyncio
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 from .speech_config import SpeechConfig
+
+logger = logging.getLogger(__name__)
+
+# 用户数据锁，防止并发读写导致数据丢失
+_user_locks: Dict[str, asyncio.Lock] = {}
+_user_locks_lock = asyncio.Lock()
+
+
+async def _get_user_lock(user_id: str) -> asyncio.Lock:
+    """获取指定用户的锁，确保同一用户的数据操作串行化"""
+    async with _user_locks_lock:
+        if user_id not in _user_locks:
+            _user_locks[user_id] = asyncio.Lock()
+        return _user_locks[user_id]
 
 
 # ========== 工具函数 ==========
@@ -35,7 +51,7 @@ def get_weekly_file(week_key: str = None) -> str:
     if week_key is None:
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+        week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
     primary_file = os.path.join(SpeechConfig.WEEKLY_DATA_DIR, f"weekly_{week_key}.json")
     legacy_file = os.path.join(SpeechConfig.LEGACY_WEEKLY_DATA_DIR, f"weekly_{week_key}.json")
     return SpeechConfig.resolve_existing_file(primary_file, legacy_file)
@@ -50,7 +66,7 @@ def load_user_data(user_id: str) -> Optional[Dict[str, Any]]:
         with open(user_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, Exception) as e:
-        print(f"❌ 加载用户数据失败 {user_id}: {e}")
+        logger.error(f"加载用户数据失败 {user_id}: {e}")
         return None
 
 
@@ -62,7 +78,7 @@ def save_user_data(user_id: str, data: Dict[str, Any]) -> bool:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"❌ 保存用户数据失败 {user_id}: {e}")
+        logger.error(f"保存用户数据失败 {user_id}: {e}")
         return False
 
 
@@ -75,7 +91,7 @@ def load_daily_data(date_str: str = None) -> Optional[Dict[str, Any]]:
         with open(daily_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, Exception) as e:
-        print(f"❌ 加载每日数据失败 {date_str}: {e}")
+        logger.error(f"加载每日数据失败 {date_str}: {e}")
         return None
 
 
@@ -89,7 +105,7 @@ def save_daily_data(data: Dict[str, Any], date_str: str = None) -> bool:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"❌ 保存每日数据失败 {date_str}: {e}")
+        logger.error(f"保存每日数据失败 {date_str}: {e}")
         return False
 
 
@@ -102,7 +118,7 @@ def load_weekly_data(week_key: str = None) -> Optional[Dict[str, Any]]:
         with open(weekly_file, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, Exception) as e:
-        print(f"❌ 加载每周数据失败 {week_key}: {e}")
+        logger.error(f"加载每周数据失败 {week_key}: {e}")
         return None
 
 
@@ -111,14 +127,14 @@ def save_weekly_data(data: Dict[str, Any], week_key: str = None) -> bool:
     if week_key is None:
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+        week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
     weekly_file = os.path.join(SpeechConfig.WEEKLY_DATA_DIR, f"weekly_{week_key}.json")
     try:
         with open(weekly_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        print(f"❌ 保存每周数据失败 {week_key}: {e}")
+        logger.error(f"保存每周数据失败 {week_key}: {e}")
         return False
 
 
@@ -152,7 +168,7 @@ def check_and_handle_week_transition(user_data: Dict[str, Any]) -> Tuple[Dict[st
     """
     current_date = datetime.now()
     current_week_start = current_date - timedelta(days=current_date.weekday())
-    current_week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+    current_week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
 
     if "weekly_stats" not in user_data:
         user_data["weekly_stats"] = {}
@@ -272,124 +288,127 @@ class UserDataManager:
             }
         }
 
-    def update_user_message(self, user_id: str, group_id: str) -> bool:
+    async def update_user_message(self, user_id: str, group_id: str) -> bool:
         """
-        更新用户发言数据
+        更新用户发言数据（异步版本，带锁保护）
         自动处理周切换，将日数据和周数据分开存储
         """
-        user_data = load_user_data(user_id)
-        if not user_data:
-            return False
+        # 获取用户锁，防止并发读写
+        lock = await _get_user_lock(user_id)
+        async with lock:
+            user_data = load_user_data(user_id)
+            if not user_data:
+                return False
 
-        current_date_str = datetime.now().strftime("%Y-%m-%d")
-        current_date = datetime.now()
-        current_week_start = current_date - timedelta(days=current_date.weekday())
-        current_week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+            current_date_str = datetime.now().strftime("%Y-%m-%d")
+            current_date = datetime.now()
+            current_week_start = current_date - timedelta(days=current_date.weekday())
+            current_week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
 
-        # 加载每日数据
-        daily_data = load_daily_data(current_date_str)
-        if daily_data is None:
-            daily_data = {"日期": current_date_str, "users": {}}
+            # 加载每日数据
+            daily_data = load_daily_data(current_date_str)
+            if daily_data is None:
+                daily_data = {"日期": current_date_str, "users": {}}
 
-        # 加载每周数据
-        weekly_data = load_weekly_data(current_week_key)
-        if weekly_data is None:
-            weekly_data = {
-                "week_key": current_week_key,
-                "week_start": current_week_start.strftime("%Y-%m-%d"),
-                "week_end": (current_week_start + timedelta(days=6)).strftime("%Y-%m-%d"),
-                "users": {}
-            }
-
-        # 更新每日数据
-        if user_id not in daily_data["users"]:
-            daily_data["users"][user_id] = {"groups": {}}
-        if group_id not in daily_data["users"][user_id]["groups"]:
-            daily_data["users"][user_id]["groups"][group_id] = 0
-        daily_data["users"][user_id]["groups"][group_id] += 1
-
-        # 更新每周数据
-        if user_id not in weekly_data["users"]:
-            weekly_data["users"][user_id] = {"groups": {}}
-        if group_id not in weekly_data["users"][user_id]["groups"]:
-            weekly_data["users"][user_id]["groups"][group_id] = {"daily": {}, "total": 0, "active_days": 0}
-        
-        # 更新每日明细
-        if current_date_str not in weekly_data["users"][user_id]["groups"][group_id]["daily"]:
-            weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] = 0
-        weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] += 1
-        
-        # 更新累计数据
-        weekly_data["users"][user_id]["groups"][group_id]["total"] += 1
-        
-        # 更新活跃天数
-        if weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] == 1:
-            weekly_data["users"][user_id]["groups"][group_id]["active_days"] += 1
-
-        # 保存每日数据到 daily 文件夹
-        save_daily_data(daily_data, current_date_str)
-
-        # 保存每周数据到 weekly 文件夹
-        save_weekly_data(weekly_data, current_week_key)
-
-        # ========== 同步更新用户文件中的 weekly_stats ==========
-        if "weekly_stats" not in user_data:
-            user_data["weekly_stats"] = {}
-        
-        if current_week_key not in user_data["weekly_stats"]:
-            user_data["weekly_stats"][current_week_key] = {
-                "统计周期": {
+            # 加载每周数据
+            weekly_data = load_weekly_data(current_week_key)
+            if weekly_data is None:
+                weekly_data = {
+                    "week_key": current_week_key,
                     "week_start": current_week_start.strftime("%Y-%m-%d"),
                     "week_end": (current_week_start + timedelta(days=6)).strftime("%Y-%m-%d"),
-                    "week_key": current_week_key
-                },
-                "累计数据": {
-                    "总发言数": 0,
-                    "活跃天数": 0
-                },
-                "每日明细": {},
-                "活跃时间": {
-                    "首次活跃日期": None,
-                    "最后活跃日期": None
-                },
-                "统计时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            # 初始化本周每日明细
-            for i in range(7):
-                day = (current_week_start + timedelta(days=i)).strftime("%Y-%m-%d")
-                user_data["weekly_stats"][current_week_key]["每日明细"][day] = 0
-        
-        # 确保群数据存在
-        if group_id not in user_data["weekly_stats"][current_week_key]:
-            user_data["weekly_stats"][current_week_key][group_id] = {
-                "每日明细": {},
-                "累计数据": {
-                    "总发言数": 0,
-                    "活跃天数": 0
+                    "users": {}
                 }
-            }
-            # 初始化每日明细
-            for i in range(7):
-                day = (current_week_start + timedelta(days=i)).strftime("%Y-%m-%d")
-                user_data["weekly_stats"][current_week_key][group_id]["每日明细"][day] = 0
-        
-        # 更新用户文件中的每日明细
-        if current_date_str not in user_data["weekly_stats"][current_week_key][group_id]["每日明细"]:
-            user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] = 0
-        user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] += 1
-        
-        # 更新用户文件中的累计数据
-        user_data["weekly_stats"][current_week_key][group_id]["累计数据"]["总发言数"] += 1
-        
-        # 更新活跃天数
-        if user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] == 1:
-            user_data["weekly_stats"][current_week_key][group_id]["累计数据"]["活跃天数"] += 1
 
-        # 更新用户汇总信息
-        self._update_summary(user_data, user_id)
+            # 更新每日数据
+            if user_id not in daily_data["users"]:
+                daily_data["users"][user_id] = {"groups": {}}
+            if group_id not in daily_data["users"][user_id]["groups"]:
+                daily_data["users"][user_id]["groups"][group_id] = 0
+            daily_data["users"][user_id]["groups"][group_id] += 1
 
-        # 保存数据
-        return save_user_data(user_id, user_data)
+            # 更新每周数据
+            if user_id not in weekly_data["users"]:
+                weekly_data["users"][user_id] = {"groups": {}}
+            if group_id not in weekly_data["users"][user_id]["groups"]:
+                weekly_data["users"][user_id]["groups"][group_id] = {"daily": {}, "total": 0, "active_days": 0}
+
+            # 更新每日明细
+            if current_date_str not in weekly_data["users"][user_id]["groups"][group_id]["daily"]:
+                weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] = 0
+            weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] += 1
+
+            # 更新累计数据
+            weekly_data["users"][user_id]["groups"][group_id]["total"] += 1
+
+            # 更新活跃天数
+            if weekly_data["users"][user_id]["groups"][group_id]["daily"][current_date_str] == 1:
+                weekly_data["users"][user_id]["groups"][group_id]["active_days"] += 1
+
+            # 保存每日数据到 daily 文件夹
+            save_daily_data(daily_data, current_date_str)
+
+            # 保存每周数据到 weekly 文件夹
+            save_weekly_data(weekly_data, current_week_key)
+
+            # ========== 同步更新用户文件中的 weekly_stats ==========
+            if "weekly_stats" not in user_data:
+                user_data["weekly_stats"] = {}
+
+            if current_week_key not in user_data["weekly_stats"]:
+                user_data["weekly_stats"][current_week_key] = {
+                    "统计周期": {
+                        "week_start": current_week_start.strftime("%Y-%m-%d"),
+                        "week_end": (current_week_start + timedelta(days=6)).strftime("%Y-%m-%d"),
+                        "week_key": current_week_key
+                    },
+                    "累计数据": {
+                        "总发言数": 0,
+                        "活跃天数": 0
+                    },
+                    "每日明细": {},
+                    "活跃时间": {
+                        "首次活跃日期": None,
+                        "最后活跃日期": None
+                    },
+                    "统计时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                # 初始化本周每日明细
+                for i in range(7):
+                    day = (current_week_start + timedelta(days=i)).strftime("%Y-%m-%d")
+                    user_data["weekly_stats"][current_week_key]["每日明细"][day] = 0
+
+            # 确保群数据存在
+            if group_id not in user_data["weekly_stats"][current_week_key]:
+                user_data["weekly_stats"][current_week_key][group_id] = {
+                    "每日明细": {},
+                    "累计数据": {
+                        "总发言数": 0,
+                        "活跃天数": 0
+                    }
+                }
+                # 初始化每日明细
+                for i in range(7):
+                    day = (current_week_start + timedelta(days=i)).strftime("%Y-%m-%d")
+                    user_data["weekly_stats"][current_week_key][group_id]["每日明细"][day] = 0
+
+            # 更新用户文件中的每日明细
+            if current_date_str not in user_data["weekly_stats"][current_week_key][group_id]["每日明细"]:
+                user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] = 0
+            user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] += 1
+
+            # 更新用户文件中的累计数据
+            user_data["weekly_stats"][current_week_key][group_id]["累计数据"]["总发言数"] += 1
+
+            # 更新活跃天数
+            if user_data["weekly_stats"][current_week_key][group_id]["每日明细"][current_date_str] == 1:
+                user_data["weekly_stats"][current_week_key][group_id]["累计数据"]["活跃天数"] += 1
+
+            # 更新用户汇总信息
+            self._update_summary(user_data, user_id)
+
+            # 保存数据
+            return save_user_data(user_id, user_data)
 
     def _update_summary(self, user_data: Dict[str, Any], user_id: str = None):
         """更新用户汇总信息"""
@@ -417,6 +436,8 @@ class UserDataManager:
 
         seen_weeks = set()
         for weekly_dir in weekly_dirs:
+            if not os.path.exists(weekly_dir):
+                continue
             for filename in os.listdir(weekly_dir):
                 if not filename.startswith("weekly_") or not filename.endswith(".json"):
                     continue
@@ -487,7 +508,7 @@ class UserDataManager:
         """获取用户本周发言数"""
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        current_week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+        current_week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
         
         weekly_data = load_weekly_data(current_week_key)
         
@@ -541,6 +562,8 @@ class UserDataManager:
 
         seen_weeks = set()
         for weekly_dir in weekly_dirs:
+            if not os.path.exists(weekly_dir):
+                continue
             for filename in os.listdir(weekly_dir):
                 if not filename.startswith("weekly_") or not filename.endswith(".json"):
                     continue
@@ -602,7 +625,7 @@ class UserDataManager:
         
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        current_week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+        current_week_key = f"{current_week_start.isocalendar()[0]}-W{current_week_start.isocalendar()[1]:02d}"
         
         for user_id in self._iter_user_ids():
             user_data = load_user_data(user_id)
@@ -646,17 +669,17 @@ class UserDataManager:
         
         # 判断是日期格式还是W+数字格式
         if week_identifier.startswith('W') or week_identifier.startswith('w'):
-            # W+数字格式，如 W06
+            # W+数字格式，如 W06（ISO 周数）
             try:
                 week_num = int(week_identifier[1:])
                 if week_num < 1 or week_num > 53:
                     return [], "无效的周数"
-                
-                current_year = datetime.now().year
+
+                current_year = datetime.now().isocalendar()[0]
                 week_key = f"{current_year}-W{week_num:02d}"
-                
-                # 计算该周第一天的日期
-                week_first_day = datetime.strptime(f"{current_year}-W{week_num:02d}-1", "%Y-W%W-%w")
+
+                # 使用 ISO 周格式解析该周第一天的日期（周一）
+                week_first_day = datetime.fromisocalendar(current_year, week_num, 1)
                 week_end = week_first_day + timedelta(days=6)
                 week_info = f"{current_year}年第{week_num}周 ({week_first_day.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')})"
             except (ValueError, IndexError):
@@ -667,7 +690,7 @@ class UserDataManager:
                 target_date = datetime.strptime(week_identifier, "%Y-%m-%d")
                 # 找到该周的周一
                 week_start = target_date - timedelta(days=target_date.weekday())
-                week_key = f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+                week_key = f"{week_start.isocalendar()[0]}-W{week_start.isocalendar()[1]:02d}"
                 week_end = week_start + timedelta(days=6)
                 week_info = f"{week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
             except ValueError:
@@ -936,7 +959,7 @@ class LogManager:
 
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         current_date = datetime.now().strftime("%Y-%m-%d")
-        current_week_key = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]:02d}"
+        current_week_key = f"{datetime.now().isocalendar()[0]}-W{datetime.now().isocalendar()[1]:02d}"
 
         log_entry = (
             f"[{current_time}] 用户 {username}({user_id}) 于 {current_date} "
@@ -945,10 +968,12 @@ class LogManager:
         )
 
         try:
+            self.log_file = os.path.join(self.logs_dir, SpeechConfig.get_log_filename())
+            os.makedirs(self.logs_dir, exist_ok=True)
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(log_entry)
         except Exception as e:
-            print(f"❌ 写入日志失败: {e}")
+            logger.error(f"写入日志失败: {e}")
 
 
 # 全局实例

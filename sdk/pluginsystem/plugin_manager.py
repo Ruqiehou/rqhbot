@@ -78,6 +78,8 @@ class HotReloadPluginManager:
         self._debounce_tasks: Dict[str, asyncio.Task] = {}
         self._debounce_delay: float = 0.5  # 防抖延迟（秒）
         self._file_watcher_enabled: bool = False
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._load_tasks: Dict[str, asyncio.Task] = {}
 
         # 将插件根目录的父目录（项目根目录）加入 sys.path，
         # 使 plugins.xxx 形式的包导入能正常工作
@@ -207,21 +209,33 @@ class HotReloadPluginManager:
             logger.warning(f"插件 {pname} 已注册")
             return False
 
-        self.plugins[pname] = plugin
-        logger.info(f"注册插件: {pname}")
-
         try:
-            loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-            if loop.is_running():
-                asyncio.create_task(
-                    plugin.on_load(self._api, self._event_bus, plugin_dir)
-                )
-            else:
-                logger.warning(f"事件循环未运行，延迟加载插件 {pname}")
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            logger.warning(f"没有运行的事件循环，延迟加载插件 {pname}")
-
+            logger.error(f"没有运行的事件循环，无法注册插件 {pname}")
+            return False
+        self._main_loop = loop
+        self.plugins[pname] = plugin
+        task = loop.create_task(self._load_registered_plugin(pname, plugin, plugin_dir))
+        self._load_tasks[pname] = task
+        task.add_done_callback(lambda t: self._on_load_done(t, pname))
         return True
+
+    async def _load_registered_plugin(self, name, plugin, plugin_dir):
+        try:
+            await plugin.on_load(self._api, self._event_bus, plugin_dir)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(f"插件 {name} 的 on_load 失败")
+            await self.unload_plugin(name)
+
+    def _on_load_done(self, task: asyncio.Task, plugin_name: str) -> None:
+        if self._load_tasks.get(plugin_name) is task:
+            self._load_tasks.pop(plugin_name, None)
+        if not task.cancelled() and task.exception() is not None:
+            error = task.exception()
+            logger.error(f"插件 {plugin_name} 加载任务失败", exc_info=(type(error), error, error.__traceback__))
 
     async def load_plugin(
         self, plugin_name: str, api: Any, event_bus: Any
@@ -246,6 +260,8 @@ class HotReloadPluginManager:
         Returns:
             是否成功
         """
+        self._main_loop = asyncio.get_running_loop()
+
         # 如果已经加载，先卸载旧版（取消订阅 + 取消任务）
         if plugin_name in self.plugins:
             await self.unload_plugin(plugin_name)
@@ -311,7 +327,14 @@ class HotReloadPluginManager:
 
             # 实例化并加载
             instance: PluginBase = plugin_class()
-            await instance.on_load(api, event_bus, self.plugin_dir / plugin_name)
+            try:
+                await instance.on_load(api, event_bus, self.plugin_dir / plugin_name)
+            except (Exception, asyncio.CancelledError):
+                try:
+                    await instance.on_unload()
+                except Exception:
+                    logger.exception(f"插件 {plugin_name} 加载失败后的清理出错")
+                raise
 
             self.plugins[plugin_name] = instance
             self.plugin_modules[plugin_name] = module
@@ -338,6 +361,11 @@ class HotReloadPluginManager:
         """
         if plugin_name not in self.plugins:
             return
+
+        task = self._load_tasks.pop(plugin_name, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
         instance = self.plugins[plugin_name]
 
@@ -417,6 +445,7 @@ class HotReloadPluginManager:
         self._api = api
         self._event_bus = event_bus
 
+        self._main_loop = asyncio.get_running_loop()
         loaded_names: List[str] = []
         if not self.plugin_dir.exists():
             logger.warning(f"插件目录不存在: {self.plugin_dir}")
@@ -527,6 +556,7 @@ class HotReloadPluginManager:
             return True
 
         try:
+            self._main_loop = asyncio.get_running_loop()
             # 创建事件处理器
             handler = _PluginFileHandler(self)
 
@@ -610,25 +640,39 @@ class HotReloadPluginManager:
             logger.warning(f"无法重载插件 {plugin_name}：api 或 event_bus 未设置")
 
     def _schedule_reload(self, plugin_name: str) -> None:
-        """调度重载任务（带防抖）
+        """调度重载任务（带防抖，线程安全）
 
         Args:
             plugin_name: 插件名称
         """
+        loop = self._main_loop
+        if not self._file_watcher_enabled or loop is None or not loop.is_running():
+            return
+        try:
+            loop.call_soon_threadsafe(self._schedule_reload_on_loop, plugin_name)
+        except RuntimeError:
+            logger.warning(f"事件循环已关闭，跳过插件 {plugin_name} 重载")
+
+    def _schedule_reload_on_loop(self, plugin_name: str) -> None:
+        if not self._file_watcher_enabled:
+            return
         # 取消之前的防抖任务
         if plugin_name in self._debounce_tasks:
             old_task = self._debounce_tasks[plugin_name]
             if not old_task.done():
                 old_task.cancel()
 
-        # 创建新的防抖任务（兼容 Python 3.12+，get_event_loop 在无 running loop 时不再返回默认 loop）
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        task = loop.create_task(self._debounced_reload(plugin_name))
+        # 创建新的防抖任务
+        task = asyncio.create_task(self._debounced_reload(plugin_name))
         self._debounce_tasks[plugin_name] = task
+        task.add_done_callback(lambda t: self._on_reload_done(t, plugin_name))
+
+    def _on_reload_done(self, task, plugin_name):
+        if self._debounce_tasks.get(plugin_name) is task:
+            self._debounce_tasks.pop(plugin_name, None)
+        if not task.cancelled() and task.exception() is not None:
+            error = task.exception()
+            logger.error(f"插件 {plugin_name} 重载失败", exc_info=(type(error), error, error.__traceback__))
 
 
 # ==================== 文件监控事件处理器 ====================

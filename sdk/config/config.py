@@ -202,23 +202,23 @@ config_manager: ConfigManager = ConfigManager()
 class Config:
     """环境变量配置类（兼容旧版）
 
-    所有常量均通过 Final 标记，保证不可覆盖。
     环境变量只在类定义时读取一次，提升性能。
+    支持通过 reload_env() 热更新配置。
     """
 
     # NapCat 连接配置
-    NAPCAT_WS_URL: Final[str] = os.getenv("NAPCAT_WS_URL", "ws://localhost:3001")
-    NAPCAT_ACCESS_TOKEN: Final[str] = os.getenv("NAPCAT_ACCESS_TOKEN", "")
+    NAPCAT_WS_URL: str = os.getenv("NAPCAT_WS_URL", "ws://localhost:3001")
+    NAPCAT_ACCESS_TOKEN: str = os.getenv("NAPCAT_ACCESS_TOKEN", "")
 
     # 日志配置
-    LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "INFO")
-    LOG_FORMAT: Final[str] = (
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FORMAT: str = (
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    LOG_DIR: Final[str] = os.getenv("LOG_DIR", "logs")
+    LOG_DIR: str = os.getenv("LOG_DIR", "logs")
 
     # 机器人配置
-    BOT_DEBUG: Final[bool] = os.getenv("BOT_DEBUG", "false").lower() == "true"
+    BOT_DEBUG: bool = os.getenv("BOT_DEBUG", "false").lower() == "true"
 
     @classmethod
     def reload_env(cls, env_file: Optional[str] = None) -> None:

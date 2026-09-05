@@ -41,7 +41,8 @@ class RqhSpeechPlugin(PluginBase):
         logger.info(f"已加载 (v{self.version})")
 
     async def on_unload(self) -> None:
-        logger.info(f"卸载中")
+        await super().on_unload()
+        logger.info("卸载中")
 
     # ==================== 消息处理 ====================
 
@@ -64,7 +65,7 @@ class RqhSpeechPlugin(PluginBase):
             logger.info(f"自动注册新用户: {username}({user_id})")
 
         # 记录发言
-        user_manager.update_user_message(user_id, group_id)
+        await user_manager.update_user_message(user_id, group_id)
 
         # 日志
         user_data = self._load_and_log(user_id, username, group_id)

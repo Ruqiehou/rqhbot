@@ -680,38 +680,24 @@ class Cultivator:
         """手动突破功能"""
         if not self.is_soul_opened:
             return "道友尚未开灵，无法进行突破。请先使用开灵功能踏入仙途。"
-        
+
         if self.realm_index >= len(SUB_REALMS) - 1:
             return "🎉 恭喜道友达到最高境界，已臻至化境，世间再无瓶颈！"
-        
-        realm_stage = (self.realm_index // 9) + 1
-        success_rate = max(0.6, 0.85 - (realm_stage * 0.005))
-        
-        if random.random() > success_rate:
-            loss_percentage = random.uniform(0.05, 0.15)
-            loss_amount = int(self.exp * loss_percentage)
-            self.exp = max(0, self.exp - loss_amount)
-            
-            failure_messages = [
-                f"💥 突破失败！走火入魔，修为受损 -{loss_amount} 修为！",
-                f"⚡ 突破失败！经脉受创，流失 -{loss_amount} 修为！",
-                f"🔥 突破失败！灵力反噬，损失 -{loss_amount} 修为！",
-                f"💧 突破失败！根基不稳，消散 -{loss_amount} 修为！"
-            ]
-            msg = random.choice(failure_messages)
-            msg += f"\n当前修为：{self.exp}/{self.next_threshold if self.next_threshold != float('inf') else 'MAX'}"
-            return msg
-        
+
+        # 检查修为是否足够突破
+        if self.exp < self.next_threshold:
+            return f"当前修为不足，无法突破。需要 {self.next_threshold} 修为"
+
         breakthrough_count = 0
         while self.realm_index < len(SUB_REALMS) - 1 and self.exp >= self.next_threshold:
             realm_stage = (self.realm_index // 9) + 1
             success_rate = max(0.6, 0.85 - (realm_stage * 0.005))
-            
+
             if random.random() > success_rate:
                 loss_percentage = random.uniform(0.05, 0.15)
                 loss_amount = int(self.exp * loss_percentage)
                 self.exp = max(0, self.exp - loss_amount)
-                
+
                 failure_messages = [
                     f"💥 突破失败！走火入魔，修为受损 -{loss_amount} 修为！",
                     f"⚡ 突破失败！经脉受创，流失 -{loss_amount} 修为！",
@@ -721,11 +707,11 @@ class Cultivator:
                 msg = random.choice(failure_messages)
                 msg += f"\n当前修为：{self.exp}/{self.next_threshold if self.next_threshold != float('inf') else 'MAX'}"
                 return msg
-            
+
             self.realm_index += 1
             self.total_breakthroughs += 1
             breakthrough_count += 1
-        
+
         if breakthrough_count > 0:
             msg = f"🎉 手动突破成功！晋升至：{self.current_realm_name}\n"
             msg += f"🎉 累计突破次数：{self.total_breakthroughs} 次"
