@@ -215,7 +215,7 @@ class Config:
     LOG_FORMAT: Final[str] = (
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    LOG_DIR: Final[str] = os.getenv("LOG_DIR", "log")
+    LOG_DIR: Final[str] = os.getenv("LOG_DIR", "logs")
 
     # 机器人配置
     BOT_DEBUG: Final[bool] = os.getenv("BOT_DEBUG", "false").lower() == "true"

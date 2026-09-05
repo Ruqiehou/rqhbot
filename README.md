@@ -10,6 +10,8 @@
 
 基于 **NapCat OneBot11** 协议的 Python QQ 机器人框架。
 
+[English](#english) | 中文
+
 </div>
 
 ---
@@ -77,6 +79,69 @@ rqhbot/
 ```
 
 ## 一键安装
+
+```bash
+pip install .
+```
+
+---
+
+## English
+
+<div align="center">
+
+[中文](#三层结构) | English
+
+</div>
+
+### Three-Layer Structure
+
+```
+run.py
+ └── sdk  3.7.0 (protocol / plugins / config)
+      └── plugins/  8 plugins
+```
+
+### 8 Plugins
+
+| Plugin | Description | LOC | Storage |
+|--------|-------------|-----|---------|
+| masu | AI chat (OpenAI) | ~350 | In-memory session |
+| rqhspeech | Message stats / leaderboard | ~700 | SQLite |
+| rqhmain | Misc (horoscope/weather/news/wordcloud/summary) | ~900 | JSONL |
+| pintu | Jigsaw puzzle game | ~500 | In-memory |
+| rqhshen | Cultivation game | ~400 | JSON |
+| rqhwenda | Q&A matching | ~300 | JSON |
+| theme_diary | Themed diary | ~200 | Markdown |
+| group_summary | Group chat summary | ~200 | JSON |
+
+### Data Flow
+
+```
+User message → NapCat WS → SDK EventBus → Plugin filter → Plugin handler → SDK API → NapCat → QQ
+```
+
+SDK features: EventBus snapshot dispatch, concurrent filter+handler execution, unified task exception logging, plugin unloading order optimization, `send_event_message` unified reply.
+
+### Core Modules
+
+| Module | Description |
+|--------|-------------|
+| `NapCatClient` | WebSocket client + OneBot API wrapper |
+| `EventBus` | Event bus (snapshot dispatch, concurrent handlers) |
+| `PluginBase` | Plugin base class (config / data / task management) |
+| `PluginManager` | Plugin loading & lifecycle management |
+| `BotClient` | Decorator-based bot entry point |
+
+### Quick Start
+
+```bash
+pip install -r requirements.txt
+cp config.yaml.example config.yaml   # edit config
+python run.py
+```
+
+### One-Line Install
 
 ```bash
 pip install .

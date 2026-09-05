@@ -22,7 +22,7 @@ bot:
 # 日志配置
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  log_dir: "log"
+  log_dir: "logs"
   log_file: "bot.log"
 
 # 其他配置
