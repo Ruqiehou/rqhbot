@@ -47,8 +47,7 @@ rqhbot/
 │   ├── rqhmain/           # 综合（天气/新闻/运势）
 │   ├── rqhshen/           # 修仙游戏
 │   ├── rqhspeech/         # 发言统计
-│   ├── rqhwenda/          # 关键字问答
-│   └── theme_diary/       # 主题日记
+│   └── rqhwenda/          # 关键字问答
 ├── docs/                  # 文档
 ├── config.yaml.example    # 配置示例
 ├── requirements.txt       # 依赖
