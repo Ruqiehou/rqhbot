@@ -1,0 +1,8 @@
+{
+  "name": "rqhmain",
+  "version": "2.0.0",
+  "description": "综合插件 - 运势、随机图、天气、新闻、IP查询等功能",
+  "author": "rqh",
+  "enabled": true,
+  "priority": 100
+}

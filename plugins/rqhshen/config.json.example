@@ -1,0 +1,8 @@
+{
+  "name": "rqhshen",
+  "version": "2.0.0",
+  "description": "修仙插件 - 开灵、打坐、突破、排行榜等功能",
+  "author": "rqh",
+  "enabled": true,
+  "priority": 100
+}
