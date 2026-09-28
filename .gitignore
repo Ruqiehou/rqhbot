@@ -25,6 +25,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Project specific
 config.yaml
@@ -39,10 +40,22 @@ tmp/
 .tools/
 
 # Plugin data
+# 仅忽略运行时数据目录；静态资源（*数据表.json、图片等）必须纳入版本控制
 plugins/*/data/
 plugins/*/temp/
-plugins/*/*.json
-!plugins/*/plugin.json
+plugins/*/base_data/
+plugins/*/daily_data/
+plugins/*/weekly_data/
+plugins/*/logs/
+
+# 插件用户配置（首次运行自动生成，参考同名 *.example 文件）
+plugins/pintu/config.json
+plugins/rqhspeech/config.json
+plugins/rqhspeech/speech_config.json
+
+# pintu 图片池中残留的非法格式文件（代码仅加载 jpg/jpeg/png/bmp/webp）
+plugins/pintu/tupina/*.0
+plugins/pintu/tupina/*.suf
 
 # Test
 .pytest_cache/
