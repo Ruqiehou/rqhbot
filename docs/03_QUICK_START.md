@@ -33,7 +33,7 @@ cp config.yaml.example config.yaml
 
 ```yaml
 napcat:
-  ws_url: "ws://127.0.0.1:3002"
+  ws_url: "ws://127.0.0.1:3001"
   access_token: ""                  # NapCat 访问令牌
 ```
 
@@ -48,7 +48,7 @@ python run.py
 启动后可以看到（日志格式为 `时间 - 模块 - 级别 - 消息`，内容随实际配置/插件而异）：
 
 ```
-2026-06-01 12:00:00 - sdk.core.client - INFO - 成功连接到NapCat服务器: ws://127.0.0.1:3002
+2026-06-01 12:00:00 - sdk.core.client - INFO - 成功连接到NapCat服务器: ws://127.0.0.1:3001
 2026-06-01 12:00:00 - sdk.bot_client - INFO - 成功加载 6 个插件: group_summary, pintu, rqhmain, rqhshen, rqhspeech, rqhwenda
 2026-06-01 12:00:00 - sdk.bot_client - INFO - ==================================================
 2026-06-01 12:00:00 - sdk.bot_client - INFO - 机器人已启动（装饰器模式）

@@ -9,7 +9,7 @@ RqhBot 使用 YAML 配置文件 `config.yaml`，项目提供 `config.yaml.exampl
 ```yaml
 # NapCat 连接
 napcat:
-  ws_url: "ws://127.0.0.1:3002"       # WebSocket 地址
+  ws_url: "ws://127.0.0.1:3001"       # WebSocket 地址
   access_token: ""                      # 访问令牌
   bot_uin: ""                           # 机器人 QQ 号
   root: ""                              # 管理员 QQ 号
@@ -41,7 +41,7 @@ settings:
 from sdk.config import config_manager
 
 # 获取配置（点号分隔路径）
-ws_url = config_manager.get("napcat.ws_url", "ws://localhost:3002")
+ws_url = config_manager.get("napcat.ws_url", "ws://localhost:3001")
 debug = config_manager.get("settings.debug", False)
 
 # 设置配置（仅写入内存，不落盘；需随后调用 config_manager.save()）
@@ -50,7 +50,7 @@ config_manager.set("settings.debug", True)
 # 便捷方法（均自动保存）
 config_manager.set_bot_uin("123456789")
 config_manager.set_root("2654278608")
-config_manager.set_ws_uri("ws://localhost:3002")
+config_manager.set_ws_uri("ws://localhost:3001")
 config_manager.set_ws_token("your_token")
 config_manager.set_webui_uri("http://localhost:6098")
 config_manager.set_webui_token("your_token")
@@ -74,7 +74,7 @@ from sdk.config import config_manager
 import os
 
 if not os.path.exists("config.yaml"):
-    config_manager.set_ws_uri("ws://127.0.0.1:3002")
+    config_manager.set_ws_uri("ws://127.0.0.1:3001")
     config_manager.set_load_plugins(True)
     print("默认配置已创建")
 ```
@@ -84,7 +84,7 @@ if not os.path.exists("config.yaml"):
 ```python
 from sdk.config import config_manager
 
-ws_url = config_manager.get("napcat.ws_url", "ws://127.0.0.1:3002")
+ws_url = config_manager.get("napcat.ws_url", "ws://127.0.0.1:3001")
 load_plugins = config_manager.get("bot.load_plugins", True)
 plugin_dir = config_manager.get("bot.plugin_dir", "plugins")
 

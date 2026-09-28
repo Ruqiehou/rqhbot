@@ -5,7 +5,7 @@
 # ⚠️ Windows 注意：localhost 可能优先解析为 IPv6 (::1)，导致 NapCat 连接失败。
 #    建议直接在下面写 127.0.0.1。
 napcat:
-  ws_url: "ws://localhost:3002"          # NapCat WebSocket 地址（建议 Win 上直接用 127.0.0.1）
+  ws_url: "ws://localhost:3001"          # NapCat WebSocket 地址（建议 Win 上直接用 127.0.0.1）
   access_token: ""                        # 访问令牌（从 NapCat 获取）
   bot_uin: ""                             # 机器人 QQ 号
   root: ""                                # 管理员 QQ 号
