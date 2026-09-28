@@ -23,6 +23,8 @@ cd rqhbot
 pip install -r requirements.txt
 ```
 
+> 依赖中的 `watchdog` 用于插件热重载的文件监控；若未安装，热重载会自动降级为手动重载。
+
 ### 3. 配置连接
 
 ```bash

@@ -48,6 +48,9 @@ plugins/*/daily_data/
 plugins/*/weekly_data/
 plugins/*/logs/
 
+# rqhmain 字谜用户保存的图片（代码未引用，属运行时数据）
+plugins/rqhmain/zm/saves/
+
 # 插件用户配置（首次运行自动生成，参考同名 *.example 文件）
 plugins/pintu/config.json
 plugins/rqhspeech/config.json
