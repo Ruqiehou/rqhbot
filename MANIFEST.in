@@ -1,0 +1,15 @@
+# 随 sdist / wheel 分发的静态资源清单
+# include-package-data = true 时，setuptools 依据本文件收集包内数据文件
+
+include README.md
+include config.yaml.example
+include requirements.txt
+include requirements-dev.txt
+
+# 插件静态资源：数据表 / 字典 / 帮助文档 / 图片
+recursive-include plugins *.json *.md *.txt *.jpg *.jpeg *.png *.bmp *.webp
+# 排除首次运行自动生成的用户配置，避免把个人数据打进分发包
+recursive-exclude plugins */config.json */speech_config.json
+
+# 排除缓存与残留文件
+global-exclude __pycache__ *.py[cod] *.pyo *.0 *.suf

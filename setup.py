@@ -27,6 +27,8 @@ setup(
     },
     python_requires=">=3.10",
     packages=find_packages(include=["sdk*", "plugins*"]),
+    # 插件静态资源（数据表、字典、图片等）通过 MANIFEST.in 声明后随包安装
+    include_package_data=True,
     install_requires=[
         "websockets>=16.0",
         "PyYAML>=6.0",
@@ -35,6 +37,7 @@ setup(
         "aiohttp>=3.11",
         "packaging>=23.0",
         "Pillow>=9.0",
+        "watchdog>=4.0",
     ],
     extras_require={
         "openai": ["openai>=1.55"],

@@ -27,6 +27,7 @@ dependencies = [
     "aiohttp>=3.11",
     "packaging>=23.0",
     "Pillow>=9.0",
+    "watchdog>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +49,10 @@ Issues = "https://github.com/rqhbot/rqhbot/issues"
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# 通过 MANIFEST.in 收集插件的静态资源（数据表、图片等）
+include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["sdk*", "plugins*"]
