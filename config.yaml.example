@@ -3,7 +3,7 @@
 
 # NapCat 连接配置
 # ⚠️ Windows 注意：localhost 可能优先解析为 IPv6 (::1)，导致 NapCat 连接失败。
-#    代码会自动将 localhost 替换为 127.0.0.1（仅 Windows），你也可以直接写 127.0.0.1。
+#    建议直接在下面写 127.0.0.1。
 napcat:
   ws_url: "ws://localhost:3002"          # NapCat WebSocket 地址（建议 Win 上直接用 127.0.0.1）
   access_token: ""                        # 访问令牌（从 NapCat 获取）
@@ -20,16 +20,19 @@ bot:
   plugin_dir: "plugins"
 
 # 日志配置
+# 注意：以下 logging.* 键当前仅由 ConfigManager.set_log_level()/set_log_dir() 写入，
+#       运行时尚未读取（setup_logging() 使用环境变量 LOG_LEVEL / LOG_DIR）。
+#       保留它们是为了兼容已有配置文件；如需生效请设置环境变量。
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  log_dir: "logs"
-  log_file: "bot.log"
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL（当前未应用，见上）
+  log_dir: "logs"  # 当前未应用；运行时默认 logs（LOG_DIR）
+  log_file: "bot.log"  # 当前未应用；运行时固定 logs/bot.log
 
 # 其他配置
 settings:
   # 调试模式
   debug: false
-  # 自动重连
+  # 自动重连（预留：当前运行时未读取，重连逻辑使用内置默认值）
   auto_reconnect: true
-  # 重连间隔（秒）
+  # 重连间隔（秒，预留：当前运行时未读取）
   reconnect_interval: 5

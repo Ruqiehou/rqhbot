@@ -30,8 +30,13 @@ class EventBus:
             handlers.remove(handler)
 
     async def publish(self, event: BaseEvent) -> None:
-        # 快照：冻结当前处理器列表，防止分发过程中变更
-        handlers = list(self._handlers.get(type(event), []))
+        # 沿 MRO 分发：既触发具体类型的订阅者，也触发其基类（如 NoticeEvent / RequestEvent）的订阅者。
+        # 快照：先收集并去重，冻结本次分发的处理器列表，分发过程中的订阅/退订不影响本次分发。
+        handlers: List[Handler] = []
+        for event_cls in type(event).__mro__:
+            for handler in self._handlers.get(event_cls, []):
+                if handler not in handlers:
+                    handlers.append(handler)
         if not handlers:
             return
 
@@ -42,7 +47,7 @@ class EventBus:
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for r in results:
-                if isinstance(r, Exception):
+                if isinstance(r, BaseException):
                     logger.error(f"EventBus handler error [{type(event).__name__}]: {r}")
 
     async def _run_handler(self, handler: Handler, event: BaseEvent) -> None:

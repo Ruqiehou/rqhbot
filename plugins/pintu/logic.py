@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import random
 import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -44,6 +45,7 @@ class GameSession:
     tiles: List[Image.Image] = field(default_factory=list)
     arrangement: List[int] = field(default_factory=lambda: CORRECT_ORDER.copy())
     scores: Dict[str, int] = field(default_factory=dict)
+    scored_positions: Dict[str, set] = field(default_factory=dict)
     piece_size: Tuple[int, int] = (0, 0)
 
 
@@ -129,9 +131,20 @@ class GameService:
                 font=font,
             )
 
-        output = TEMP_DIR / f"puzzle_{session.group_id}.jpg"
+        # 每次渲染都用唯一文件名：并发交换时不会覆盖彼此的棋盘图
+        output = TEMP_DIR / f"puzzle_{session.group_id}_{uuid.uuid4().hex}.jpg"
         image.save(output, "JPEG", quality=90)
         return output
+
+    @staticmethod
+    def remove_temp_image(image_path) -> None:
+        """删除本次渲染的临时图片（仅限 TEMP_DIR 内），失败时静默忽略"""
+        try:
+            path = Path(image_path)
+            if path.parent == TEMP_DIR:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @staticmethod
     def _get_font(size: int) -> ImageFont.FreeTypeFont:
@@ -169,17 +182,17 @@ class GameService:
     # ---------- 管理员包装 ----------
 
     @staticmethod
-    def is_admin(user_id: int) -> bool:
-        return is_puzzle_admin(user_id)
+    def is_admin(user_id: int, group_id: Optional[int] = None) -> bool:
+        return is_puzzle_admin(user_id, group_id)
 
     @staticmethod
-    def get_admins() -> List[str]:
-        return get_admins()
+    def get_admins(group_id: Optional[int] = None) -> List[str]:
+        return get_admins(group_id)
 
     @staticmethod
-    def add_admin(user_id: str) -> bool:
-        return add_admin(user_id)
+    def add_admin(user_id: str, group_id: Optional[int] = None) -> bool:
+        return add_admin(user_id, group_id)
 
     @staticmethod
-    def remove_admin(user_id: str) -> bool:
-        return remove_admin(user_id)
+    def remove_admin(user_id: str, group_id: Optional[int] = None) -> bool:
+        return remove_admin(user_id, group_id)

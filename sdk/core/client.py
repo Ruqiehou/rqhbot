@@ -328,13 +328,24 @@ class NapCatClient(IClient):
     
     async def disconnect(self, force: bool = False) -> None:
         """断开连接
-        
+
+        异常断线时 _connected 已被置为 False，但监听/处理任务、WebSocket 引用、
+        消息队列和未完成的 API 请求可能仍然存在，此时也必须清理，
+        不能仅凭连接标志提前返回。
+
         Args:
             force: 是否强制断开
         """
-        if not self._connected and not force:
+        has_resources = (
+            self._processing_task is not None
+            or self._listen_task is not None
+            or self.ws is not None
+            or self.msg_queue is not None
+            or bool(self.echo_map)
+        )
+        if not self._connected and not force and not has_resources:
             return
-        
+
         self._connected = False
         
         # 关闭消息队列处理
@@ -431,11 +442,20 @@ class NapCatClient(IClient):
                                 )
                 except Exception as e:
                     logger.error(f"消息入队失败: {e}")
+        except asyncio.CancelledError:
+            raise
         except ConnectionClosed:
             logger.warning("WebSocket连接已关闭")
-            self._connected = False
         except Exception as e:
             logger.error(f"监听消息时发生错误: {e}")
+        else:
+            # websockets 在正常关闭（1000/1001）时会把 ConnectionClosedOK
+            # 转成 StopAsyncIteration 让 async for 正常结束，
+            # 不会进入上面的 ConnectionClosed 分支，必须在此更新状态
+            logger.warning("WebSocket连接已正常关闭")
+        finally:
+            # 无论正常关闭、异常还是被取消，都要标记断开，
+            # 否则 run_frontend 会一直等待一个已经死掉的连接
             self._connected = False
 
     async def _process_messages(self) -> None:

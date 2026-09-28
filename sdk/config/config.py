@@ -26,6 +26,14 @@ load_dotenv(_env_path)
 YamlConfig: TypeAlias = Dict[str, Any]
 
 
+class ConfigError(RuntimeError):
+    """配置读写错误
+
+    在「配置无法安全序列化」或「加载失败后拒绝写入」时抛出，
+    避免把配置文件静默清空成 ``{}``。
+    """
+
+
 class ConfigManager:
     """YAML 配置管理器"""
 
@@ -41,35 +49,93 @@ class ConfigManager:
             _raw = Path(__file__).parent.parent.parent / _raw
         self.config_path: Path = _raw
         self.config: YamlConfig = {}
+        self._load_failed: bool = False
         self._load_config()
 
     def _load_config(self) -> None:
-        """加载配置文件"""
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    loaded: Any = yaml.safe_load(f)
-                    self.config = loaded if isinstance(loaded, dict) else {}
-            except Exception as e:
-                logger.error("[配置] 加载失败: %s，使用空配置", e)
-                self.config = {}
+        """加载配置文件
+
+        读取失败（YAML 语法错误、``safe_load`` 不认识的 ``!!python/...`` 标签等）
+        时不会静默当成空配置：记录错误并置位 ``_load_failed``，让后续
+        ``save()`` 拒绝写入，避免用 ``{}`` 覆盖磁盘上仍然有效的文件。
+        """
+        self._load_failed = False
+
+        if not self.config_path.exists():
+            self.config = {}
+            return
+
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                loaded: Any = yaml.safe_load(f)
+        except Exception as e:
+            self.config = {}
+            self._load_failed = True
+            logger.error(
+                "[配置] 加载失败: %s：%s；已拒绝后续写入以避免覆盖该文件",
+                self.config_path,
+                e,
+            )
+            return
+
+        if loaded is None:
+            # 空文件视为空配置（可安全写入）
+            self.config = {}
+        elif isinstance(loaded, dict):
+            self.config = loaded
         else:
             self.config = {}
+            self._load_failed = True
+            logger.error(
+                "[配置] 加载失败: %s 顶层不是映射（实际为 %s）；已拒绝后续写入以避免覆盖该文件",
+                self.config_path,
+                type(loaded).__name__,
+            )
 
     def _save_config(self) -> None:
-        """保存配置文件"""
+        """保存配置文件（原子写入）
+
+        用与 ``_load_config`` 对称的 ``yaml.safe_dump`` 序列化：无法安全表示的值
+        会立即报错，而不是写成 ``safe_load`` 读不回来的 ``!!python/...`` 标签。
+        先写同目录临时文件再 ``os.replace``，因此任何一步失败都不会截断现有配置。
+
+        Raises:
+            ConfigError: 加载曾失败（拒绝用空配置覆盖磁盘文件）或序列化失败。
+        """
+        if self._load_failed:
+            raise ConfigError(
+                f"[配置] {self.config_path} 加载失败，已拒绝写入以避免覆盖原文件；"
+                "请修复该文件的 YAML 内容后调用 reload()"
+            )
+
+        try:
+            text: str = yaml.safe_dump(
+                self.config,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        except yaml.YAMLError as e:
+            message = f"[配置] 无法安全序列化为 YAML（存在不可表示的值）: {e}"
+            logger.error(message)
+            raise ConfigError(message) from e
+
+        tmp_path: Path = self.config_path.with_name(self.config_path.name + ".tmp")
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    self.config,
-                    f,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
-                )
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.config_path)
         except Exception as e:
             logger.error("[配置] 保存失败: %s", e)
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
 
     # ---- 通用读写 ----
 
@@ -97,17 +163,30 @@ class ConfigManager:
     def set(self, key: str, value: Any) -> None:
         """设置配置值（支持点号分隔路径）
 
+        路径中间若已存在的值不是映射（手写配置里常见的 ``napcat:``，即 null，
+        或 ``napcat: "ws://x"`` 这类标量），会用新的空映射替换它并记录警告，
+        保证写入行为可预测，而不是抛出裸 ``TypeError``。
+
         Args:
             key: 配置键
             value: 配置值
         """
         keys: list[str] = key.split(".")
-        current: Any = self.config
+        current: Dict[str, Any] = self.config
 
-        for k in keys[:-1]:
-            if k not in current:
-                current[k] = {}
-            current = current[k]
+        for index, k in enumerate(keys[:-1]):
+            child: Any = current.get(k)
+            if not isinstance(child, dict):
+                if child is not None:
+                    logger.warning(
+                        "[配置] %s 不是映射（实际为 %s），已替换为空映射以写入 %s",
+                        ".".join(keys[: index + 1]),
+                        type(child).__name__,
+                        key,
+                    )
+                child = {}
+                current[k] = child
+            current = child
 
         current[keys[-1]] = value
 

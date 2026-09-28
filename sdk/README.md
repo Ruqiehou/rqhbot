@@ -12,16 +12,15 @@ sdk/
 ├── bot_client.py            # BotClient 核心类，整合所有功能
 ├── core/                    # 核心模块
 │   ├── __init__.py          # 核心模块导出
-│   ├── client.py           # NapCatClient - WebSocket 客户端
-│   ├── api.py              # BotAPI - 机器人 API 接口
-│   ├── events.py           # 事件类定义
-│   ├── event_bus.py        # 事件总线
-│   ├── event_dispatcher.py # 事件分发器
-│   └── interfaces.py       # 接口定义
+│   ├── client.py           # NapCatClient - WebSocket 客户端 / MessageSegment
+│   ├── emoji_map.py        # QQ 表情 ID → 名称映射
+│   ├── events.py           # 强类型事件与 Message 定义
+│   ├── event_bus.py        # 事件总线（EventBus）
+│   └── interfaces.py       # 接口定义（IClient 等）
 ├── pluginsystem/            # 插件系统模块
 │   ├── __init__.py          # 插件系统导出
-│   ├── plugin_base.py      # 插件基类和管理器
-│   └── plugin_manager.py   # 插件管理器实现
+│   ├── plugin_base.py      # PluginBase / PluginManager / filter_registry
+│   └── plugin_manager.py   # HotReloadPluginManager 热重载管理器
 └── config/                  # 配置模块
     ├── __init__.py          # 配置模块导出
     └── config.py           # 配置管理和日志设置
@@ -33,12 +32,11 @@ sdk/
 
 提供机器人核心功能：
 
-- **NapCatClient**: WebSocket 客户端，负责与 NapCat 建立连接和通信
-- **BotAPI**: 机器人 API 接口，封装了常用的消息发送、管理等操作
-- **Event classes**: 事件类，包括 GroupMessageEvent、PrivateMessageEvent 等强类型事件
+- **NapCatClient**: WebSocket 客户端，负责与 NapCat 建立连接、收发消息并封装常用 OneBot API 调用
+- **MessageSegment**: 消息段构建器，用于构造数组格式的图文混排消息
+- **Event classes**: 强类型事件，包括 GroupMessageEvent、PrivateMessageEvent 等（含 Message 对象）
 - **EventBus**: 事件总线，实现模块间的解耦通信
-- **EventDispatcher**: 事件分发器，负责事件的派发和处理
-- **Interfaces**: 接口定义，如 IBotAPI 等
+- **Interfaces**: 接口定义，包括 `IClient`、`IConnectionEventListener`
 
 ### 插件系统模块 (sdk.pluginsystem)
 
@@ -46,7 +44,7 @@ sdk/
 
 - **PluginBase**: 插件基类，所有插件必须继承此类
 - **PluginManager**: 插件管理器，负责插件的加载、卸载和管理
-- **FilterRegistry**: 过滤器注册表，用于消息过滤和路由
+- **filter_registry**: 过滤器注册表实例，用于消息过滤和路由（`group_server` / `private_server` / `message_filter`）
 
 ### 配置模块 (sdk.config)
 
@@ -61,7 +59,8 @@ sdk/
 
 ```python
 # 方式一：从子模块导入
-from sdk.core import BotClient, NapCatClient, GroupMessageEvent
+from sdk.bot_client import BotClient
+from sdk.core import NapCatClient, MessageSegment, GroupMessageEvent
 
 # 方式二：从主模块导入（推荐）
 from sdk import BotClient, GroupMessageEvent
@@ -93,12 +92,17 @@ from sdk import Config, setup_logging
 from sdk import (
     BotClient,           # 机器人客户端
     PluginBase,          # 插件基类
+    PluginManager,       # 插件管理器
+    EventBus,            # 事件总线
     GroupMessageEvent,   # 群消息事件
     PrivateMessageEvent, # 私聊消息事件
-    MessageSegment,      # 消息段构建器
     Config,              # 配置管理
-    setup_logging        # 日志设置
+    setup_logging,       # 日志设置
+    filter_registry,     # 过滤器注册表
 )
+
+# MessageSegment 由 sdk.core 导出
+from sdk.core import MessageSegment
 ```
 
 ## 💡 快速示例
@@ -125,7 +129,7 @@ async def handle_message(msg: GroupMessageEvent):
     elif text == "hello":
         await bot.api.send_group_message(
             group_id=msg.group_id,
-            message=f"你好 {msg.sender.nickname}！"
+            message=f"你好 {msg.user_name}！"
         )
 
 if __name__ == "__main__":
@@ -142,7 +146,7 @@ if __name__ == "__main__":
 ```python
 import logging
 from sdk import PluginBase, filter_registry
-from sdk.events import GroupMessageEvent, PrivateMessageEvent
+from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +177,7 @@ class HelloPlugin(PluginBase):
 
 ## 📋 版本信息
 
-- **当前版本**: 3.5.0
+- **当前版本**: 3.7.0
 - **最后更新**: 2026-05-16
-- **Python 要求**: >= 3.8
-- **依赖库**: websockets, aiohttp, PyYAML, python-dotenv
+- **Python 要求**: >= 3.10
+- **依赖库**: websockets, aiohttp, PyYAML, python-dotenv, requests, packaging

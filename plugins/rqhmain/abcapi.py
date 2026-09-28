@@ -17,6 +17,11 @@ from typing import Dict, Optional, Tuple, List, Union
 from pathlib import Path
 
 
+# 单次 HTTP 请求超时。原为 10s：在异步处理器中阻塞调用时，
+# 一次超时就会冻结整个事件循环 10s，故收紧到 5s 以限制最坏情况。
+HTTP_TIMEOUT_SECONDS = 5
+
+
 class WeatherAPI:
     """天气查询API"""
     
@@ -36,7 +41,7 @@ class WeatherAPI:
         """
         try:
             url = f"{self.base_url}?city={city}&type={info_type}"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=HTTP_TIMEOUT_SECONDS)
             response.raise_for_status()
             
             try:
@@ -94,7 +99,7 @@ class NewsAPI:
             response = requests.get(
                 self.api_url,
                 headers=self.headers,
-                timeout=10
+                timeout=HTTP_TIMEOUT_SECONDS
             )
             
             if response.status_code == 200:

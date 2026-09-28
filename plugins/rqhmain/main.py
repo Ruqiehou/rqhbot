@@ -1,7 +1,9 @@
 # ==================== 系统必要导入 ====================
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from sdk.pluginsystem import PluginBase, filter_registry
@@ -26,6 +28,11 @@ from .logic import (
 
 logger = logging.getLogger("rqhmain")
 
+# 同一用户发起联网查询的最小间隔（秒）。配合 HTTP_TIMEOUT_SECONDS=5，
+# 10 条刷屏消息最坏只阻塞后台线程 ~5s，而不再是排队 ~100s。
+API_COOLDOWN_SECONDS = 3.0
+RATE_LIMIT_TEXT = "查询过于频繁，请稍后再试"
+
 
 class RqhmainPlugin(PluginBase):
     """Rqhmain综合插件 - 运势、随机图、天气、新闻、IP查询等功能"""
@@ -38,6 +45,7 @@ class RqhmainPlugin(PluginBase):
         self.author = "rqh"
         self.enabled = True
         self.config: Dict[str, Any] = {}
+        self._last_network_call: Dict[Any, float] = {}
 
     async def on_load(self, api, event_bus, plugin_dir=None):
         await super().on_load(api, event_bus, plugin_dir)
@@ -47,6 +55,9 @@ class RqhmainPlugin(PluginBase):
 
     async def on_unload(self):
         logger.info("卸载中")
+        # 必须调用基类清理：退订 EventBus、取消后台任务、关闭线程池。
+        # 否则显式卸载或热重载后，旧实例仍会响应消息，重载后重复回复
+        await super().on_unload()
 
     # ==================== 事件入口 ====================
 
@@ -88,6 +99,17 @@ class RqhmainPlugin(PluginBase):
 
     # ==================== 功能实现 ====================
 
+    def _allow_network_call(self, event: Any) -> bool:
+        """按用户限流：同一用户冷却期内不允许再次发起联网查询。"""
+        user_id = getattr(event, "user_id", None)
+        key = user_id if user_id is not None else "__global__"
+        now = time.monotonic()
+        last = self._last_network_call.get(key)
+        if last is not None and now - last < API_COOLDOWN_SECONDS:
+            return False
+        self._last_network_call[key] = now
+        return True
+
     async def _handle_weather(
         self,
         event: Any,
@@ -101,8 +123,13 @@ class RqhmainPlugin(PluginBase):
                 await self._reply(event, group_id, msg)
                 return
 
+            if not self._allow_network_call(event):
+                await self._reply(event, group_id, RATE_LIMIT_TEXT)
+                return
+
             try:
-                result = WeatherAPI().query_weather(city)
+                # 同步 requests.get 必须放到线程，避免阻塞事件循环
+                result = await asyncio.to_thread(WeatherAPI().query_weather, city)
                 if result.get("success"):
                     data = result.get("data")
                     if isinstance(data, dict):
@@ -125,8 +152,14 @@ class RqhmainPlugin(PluginBase):
             await self._reply(event, group_id, msg)
             return
 
+        if not self._allow_network_call(event):
+            await self._reply(event, group_id, RATE_LIMIT_TEXT)
+            return
+
         try:
-            result = WeatherAPI().query_weather(city, info_type="forecast")
+            result = await asyncio.to_thread(
+                WeatherAPI().query_weather, city, "forecast"
+            )
             if result.get("success"):
                 data = result.get("data")
                 if isinstance(data, dict):
@@ -147,8 +180,13 @@ class RqhmainPlugin(PluginBase):
         raw_message: str,
         group_id: Optional[int],
     ) -> None:
+        if not self._allow_network_call(event):
+            await self._reply(event, group_id, RATE_LIMIT_TEXT)
+            return
+
         try:
-            result = NewsAPI().get_news()
+            # 同步 requests.get 必须放到线程，避免阻塞事件循环
+            result = await asyncio.to_thread(NewsAPI().get_news)
             if result:
                 segments = build_news_segments(result)
                 await self._reply_segments(event, group_id, segments)
@@ -173,7 +211,7 @@ class RqhmainPlugin(PluginBase):
         raw_message: str,
         group_id: Optional[int],
     ) -> None:
-        if "指南" in raw_message:
+        if match_keyword(raw_message, HELP_KEYWORDS):
             await self._reply(event, group_id, HELP_TEXT)
 
     # ==================== 回复辅助 ====================

@@ -1,7 +1,10 @@
 import random
 import json
+import logging
 import os
 from datetime import datetime, timedelta
+
+logger = logging.getLogger("rqhshen.game")
 
 # 全局经验配置
 EXPERIENCE_CONFIG = {}
@@ -371,14 +374,44 @@ def generate_sub_thresholds():
 
 SUB_REALM_THRESHOLDS = generate_sub_thresholds()
 
+
+# ==================== 打坐/修炼参数（来源于 jingjie.json 的 experience_settings） ====================
+
+def _config_float(key, default):
+    try:
+        return float(EXPERIENCE_CONFIG.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _config_int(key, default):
+    try:
+        return int(EXPERIENCE_CONFIG.get(key, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+# 打坐冷却：jingjie.json 未定义该键时使用 60 秒
+MEDITATION_COOLDOWN_SECONDS = max(0.0, _config_float("meditation_cooldown_seconds", 60))
+# 打坐基础收益下限/上限（低修为阶段的保底区间）
+MEDITATION_BASE_MIN = max(1, _config_int("meditation_base_min", 10))
+MEDITATION_BASE_MAX = max(MEDITATION_BASE_MIN, _config_int("meditation_base_max", 50))
+# 是否按当前修为的百分比获得收益（README：当前修为的 20%-5000%）
+MEDITATION_RELATIVE_GAIN = bool(EXPERIENCE_CONFIG.get("meditation_relative_gain", True))
+# 注意：配置里的 percent 值 0.2 / 50.0 是“相对当前修为的倍数”，与 README 的 20% / 5000% 一致
+MEDITATION_RELATIVE_MIN = max(0.0, _config_float("meditation_relative_min_percent", 0.2))
+MEDITATION_RELATIVE_MAX = max(MEDITATION_RELATIVE_MIN, _config_float("meditation_relative_max_percent", 50.0))
+
 # 飞升境界等级列表
 ASCENSION_LEVELS = [9, 49, 159, 199, 279]
 
 # ==================== 关键词配置 ====================
 
-RANK_KEYWORDS = ["排行榜", "榜单", "排名"]
+RANK_KEYWORDS = ["排行榜", "榜单", "排名", "排行"]
 STATS_KEYWORDS = ["统计", "数据", "修为", "境界", "等级"]
-CULTIVATE_KEYWORDS = ["开灵", "打坐", "突破", "修炼", "修行", "修仙"]
+CULTIVATE_KEYWORDS = ["开灵", "打坐", "突破", "修炼", "修行", "修仙", "飞升", "挑战", "攻击"]
+ASCENSION_KEYWORDS = ["飞升"]
+BATTLE_KEYWORDS = ["挑战", "攻击"]
 HELP_KEYWORDS = ["帮助", "使用说明", "功能"]
 
 

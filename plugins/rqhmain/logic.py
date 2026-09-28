@@ -141,7 +141,7 @@ def build_news_segments(result: Dict[str, Any]) -> List[Dict[str, Any]]:
 WEATHER_KEYWORDS = ["天气", "气温", "预报", "降雨", "湿度", "风力"]
 NEWS_KEYWORDS = ["新闻", "资讯", "头条", "热点", "60秒", "新闻60秒"]
 FORTUNE_KEYWORDS = ["运势", "八字", "命理", "紫微", "星座", "塔罗", "今日运势", "运势查询"]
-HELP_KEYWORDS = ["帮助", "使用说明", "功能"]
+HELP_KEYWORDS = ["帮助", "使用说明", "功能", "指南"]
 
 
 def match_keyword(text: str, keywords: List[str]) -> bool:

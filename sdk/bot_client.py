@@ -317,6 +317,16 @@ class BotClient:
         except Exception as e:
             logger.error(f"发生错误: {e}", exc_info=True)
         finally:
+            # 先停文件监控，再逆序卸载插件（退订事件、取消任务、落盘），
+            # 最后取消剩余后台任务并断开连接
+            try:
+                self.stop_file_watcher()
+            except Exception as e:
+                logger.error(f"停止文件监控失败: {e}", exc_info=True)
+            try:
+                await self.hot_reload_manager.unload_all_plugins()
+            except Exception as e:
+                logger.error(f"卸载插件失败: {e}", exc_info=True)
             self._cancel_tracked_tasks()
             await self.client.disconnect()
             logger.info("机器人已关闭")

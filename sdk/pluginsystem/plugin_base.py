@@ -9,11 +9,12 @@ import asyncio
 import importlib.util
 import json
 import logging
+import os
 import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeAlias, TypeVar
 
@@ -155,11 +156,31 @@ class PluginBase:
         self._config_cache_time: Dict[str, float] = {}
         self._config_ttl: float = 600.0
         self._plugin_dir: Optional[Path] = None
+        self._unloading: bool = False
         self._message_handlers: Dict[str, List[Dict[str, Any]]] = {
             "group": [],
             "private": [],
         }
         self._collect_message_handlers()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """把子类重写的 on_unload 收编为模板方法的一环
+
+        插件常在 on_unload 中先做业务清理再 await super().on_unload()。若子类实现
+        中途抛异常、或干脆没有调用 super()，基类的退订/任务取消就永远不会执行，
+        死掉的插件实例会继续挂在 EventBus 上重复回复消息。
+
+        因此这里把子类定义的 on_unload 改名为 _on_unload_impl，由基类 on_unload
+        在 finally 中统一保证资源释放；子类里的 super().on_unload() 依然可用
+        （基类有重入保护，不会递归）。
+        """
+        super().__init_subclass__(**kwargs)
+
+        impl = cls.__dict__.get("on_unload")
+        if impl is not None and asyncio.iscoroutinefunction(impl):
+            cls._on_unload_impl = impl
+            # 删掉子类自己的 on_unload，让实例继续解析到基类的模板方法
+            delattr(cls, "on_unload")
 
     # ==================== 路径解析 ====================
 
@@ -175,6 +196,33 @@ class PluginBase:
             return Path(module_file).resolve().parent
 
         return Path.cwd() / "plugins" / (self.name.lower() if self.name else "")
+
+    def _atomic_write_json(self, path: Path, data: Any) -> None:
+        """原子写入 JSON 文件
+
+        直接 open(path, "w") 会立刻截断目标文件，若 json.dump 中途失败，
+        旧内容已经丢失、磁盘上只剩半截 JSON，下次读取就会静默回退成默认值。
+        这里先写同目录临时文件，成功后再 os.replace 覆盖，
+        保证目标文件要么是完整的旧内容、要么是完整的新内容。
+
+        Raises:
+            写入或替换失败时原样抛出，由调用方转成 False
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path: Path = path.with_name(f"{path.name}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except BaseException:
+            # 失败时清掉临时文件，避免污染插件目录
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
 
     # ==================== 过滤器注册 ====================
 
@@ -234,13 +282,43 @@ class PluginBase:
         logger.info(f"插件 {self.name} 加载成功")
 
     async def on_unload(self) -> None:
-        """插件卸载时调用"""
+        """插件卸载时调用（模板方法）
+
+        无论子类实现是否调用了 super()、是否抛异常，基类都会在 finally 中
+        释放事件订阅、取消后台任务并关闭线程池，避免卸载失败留下僵尸插件。
+        子类可继续重写本方法做额外清理。
+        """
+        if getattr(self, "_unloading", False):
+            # 子类实现里 await super().on_unload() 时走到这里：
+            # 资源释放由最外层调用统一负责，避免重复与递归
+            return
+
+        self._unloading = True
+        try:
+            impl = self._resolve_on_unload_impl()
+            if impl is not None:
+                await impl(self)
+        finally:
+            self._unloading = False
+            self._release_plugin_resources()
+            logger.info(f"插件 {self.name} 已卸载")
+
+    def _resolve_on_unload_impl(self) -> Optional[Callable[[Any], Coroutine[Any, Any, Any]]]:
+        """查找子类通过 __init_subclass__ 登记的 on_unload 实现"""
+        for klass in type(self).__mro__:
+            impl = klass.__dict__.get("_on_unload_impl")
+            if impl is not None:
+                return impl
+        return None
+
+    def _release_plugin_resources(self) -> None:
+        """释放插件占用的资源（幂等，可重复调用）"""
         self._unsubscribe_events()
         for task in self._tasks:
             if not task.done():
                 task.cancel()
+        self._tasks.clear()
         self._executor.shutdown(wait=False)
-        logger.info(f"插件 {self.name} 已卸载")
 
     def _subscribe_events(self) -> None:
         """向 EventBus 订阅事件"""
@@ -369,8 +447,7 @@ class PluginBase:
 
         try:
             plugin_dir.mkdir(parents=True, exist_ok=True)
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+            self._atomic_write_json(config_path, config)
 
             cache_key: str = f"{self.name}_{config_name}"
             self._config_cache[cache_key] = dict(config)
@@ -379,6 +456,22 @@ class PluginBase:
         except Exception as e:
             logger.error(f"保存插件 {self.name} 配置失败: {e}")
             return False
+
+    async def run_in_executor(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        """在线程池中执行同步函数，避免阻塞事件循环
+
+        Args:
+            func: 同步函数
+            *args: 位置参数
+            **kwargs: 关键字参数
+
+        Returns:
+            同步函数的返回值
+        """
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, partial(func, *args, **kwargs))
 
     def sync_run(self, func: F) -> Callable[..., Coroutine[Any, Any, Any]]:
         """同步运行装饰器 —— 将同步函数包装为协程
@@ -426,8 +519,7 @@ class PluginBase:
             plugin_dir: Path = self._resolve_plugin_dir()
             plugin_dir.mkdir(parents=True, exist_ok=True)
             file_path: Path = plugin_dir / filename
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._atomic_write_json(file_path, data)
             return True
         except Exception as e:
             logger.error(f"保存数据失败: {e}")
@@ -524,6 +616,37 @@ class PluginManager:
         self.event_bus: EventBus = event_bus
         self.plugins: Dict[str, PluginBase] = {}
         self._loaded_plugins: List[str] = []
+        self._load_tasks: Dict[str, asyncio.Task[Any]] = {}
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+
+    # ==================== 后台任务 ====================
+
+    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> Optional[asyncio.Task[Any]]:
+        """在当前事件循环中创建任务并持有强引用
+
+        必须持有引用，否则任务可能被 GC 提前回收；同时统一取回异常，
+        避免出现 "Task exception was never retrieved"。
+
+        Returns:
+            创建的任务；当前没有运行中的事件循环时返回 None
+        """
+        try:
+            loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        task: asyncio.Task[Any] = loop.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_background_task_done)
+        return task
+
+    def _on_background_task_done(self, task: asyncio.Task[Any]) -> None:
+        self._background_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc: Optional[BaseException] = task.exception()
+        if exc is not None:
+            logger.error(f"插件后台任务异常: {exc}", exc_info=exc)
 
     # ==================== 注册 / 注销 ====================
 
@@ -547,15 +670,49 @@ class PluginManager:
         logger.info(f"注册插件: {pname}")
 
         try:
-            loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-            if loop.is_running():
-                asyncio.create_task(plugin.on_load(self.api, self.event_bus, plugin_dir))
-            else:
-                logger.warning(f"事件循环未运行，延迟加载插件 {pname}")
+            asyncio.get_running_loop()
         except RuntimeError:
             logger.warning(f"没有运行的事件循环，延迟加载插件 {pname}")
+            return True
 
+        task: asyncio.Task[Any] = asyncio.create_task(
+            plugin.on_load(self.api, self.event_bus, plugin_dir)
+        )
+        self._load_tasks[pname] = task
+        task.add_done_callback(partial(self._on_load_done, pname, plugin))
         return True
+
+    def _on_load_done(
+        self, pname: str, plugin: PluginBase, task: asyncio.Task[Any]
+    ) -> None:
+        """加载任务收尾：取回异常，清理失败的插件
+
+        加载失败或被取消的插件不能留在注册表里，否则会变成只挂订阅、
+        不受管理的僵尸插件（重载后重复回复）。
+        """
+        if self._load_tasks.get(pname) is task:
+            self._load_tasks.pop(pname, None)
+
+        if task.cancelled():
+            logger.warning(f"插件 {pname} 加载被取消，清理可能已建立的订阅")
+        else:
+            exc: Optional[BaseException] = task.exception()
+            if exc is None:
+                return
+            logger.error(f"插件 {pname} 加载失败: {exc}", exc_info=exc)
+
+        # 取消或异常都可能发生在“已订阅事件、尚未登记完成”的中间态，
+        # 因此必须显式释放资源，而不是只从字典里删掉
+        try:
+            plugin._release_plugin_resources()
+        except Exception as cleanup_error:
+            logger.error(
+                f"清理加载失败的插件 {pname} 出错: {cleanup_error}", exc_info=True
+            )
+
+        if self.plugins.get(pname) is plugin:
+            self.plugins.pop(pname, None)
+        self._loaded_plugins = [p for p in self._loaded_plugins if p.lower() != pname]
 
     def unregister_plugin(self, plugin_name: str) -> bool:
         """注销插件
@@ -573,12 +730,25 @@ class PluginManager:
             return False
 
         plugin: PluginBase = self.plugins[pname]
-        asyncio.create_task(plugin.on_unload())
 
+        # 1. 取消仍在进行中的加载：否则加载会在注销完成后才订阅事件，留下僵尸
+        load_task: Optional[asyncio.Task[Any]] = self._load_tasks.pop(pname, None)
+        if load_task is not None and not load_task.done():
+            load_task.cancel()
+
+        # 2. 从内部记录中移除
         del self.plugins[pname]
         self._loaded_plugins = [
             p for p in self._loaded_plugins if p.lower() != pname
         ]
+
+        # 3. 卸载清理：有事件循环则异步执行，没有则同步释放，保证订阅不泄漏
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            plugin._release_plugin_resources()
+        else:
+            self._spawn(plugin.on_unload())
 
         logger.info(f"注销插件: {pname}")
         return True

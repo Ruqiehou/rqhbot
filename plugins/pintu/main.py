@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from sdk.core import MessageSegment
 from sdk.core.events import GroupMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
 
@@ -18,6 +19,9 @@ from .logic import (
 )
 
 PLUGIN_DIR = Path(__file__).resolve().parent
+
+# 单条消息里最多 @ 的人数，超出后折叠为“等N人”，避免大群消息超长发送失败
+MAX_AT_USERS = 10
 
 
 class PintuPlugin(PluginBase):
@@ -94,7 +98,7 @@ class PintuPlugin(PluginBase):
 
     async def _start_game(self, event: GroupMessageEvent) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以开始游戏。")
             return
 
@@ -119,6 +123,7 @@ class PintuPlugin(PluginBase):
         session.tiles = tiles
         session.piece_size = piece_size
         session.scores = {}
+        session.scored_positions = {}
         self.game.shuffle(session)
         image = self.game.save_puzzle_image(session)
 
@@ -129,7 +134,7 @@ class PintuPlugin(PluginBase):
 
     async def _end_game(self, event: GroupMessageEvent) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以结束游戏。")
             return
 
@@ -147,17 +152,22 @@ class PintuPlugin(PluginBase):
 
         ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         highest = ranking[0][1]
-        winners = [self.game.mention(int(uid)) for uid, score in ranking if score == highest]
-        detail = "，".join(f"{self.game.mention(int(uid))}({score}分)" for uid, score in ranking)
+        winners = [int(uid) for uid, score in ranking if score == highest]
+
+        # 用真正的 at 消息段，mention() 拼出的 CQ 字符串会被当作普通文本发送
         if len(winners) > 1:
-            text = f"游戏结束！并列第一：{'，'.join(winners)}，得分 {highest}。完整排行：{detail}。恭喜！"
+            segments: list = [MessageSegment.text("游戏结束！并列第一：")]
         else:
-            text = f"游戏结束！胜利者：{winners[0]}，得分 {highest}。完整排行：{detail}。恭喜！"
-        await self.api.send_group_message(group_id, text)
+            segments = [MessageSegment.text("游戏结束！胜利者：")]
+        segments += self._mention_segments(winners)
+        segments.append(MessageSegment.text(f"，得分 {highest}。完整排行："))
+        segments += self._ranking_segments(ranking)
+        segments.append(MessageSegment.text("。恭喜！"))
+        await self.api.send_group_message_segments(group_id, segments)
 
     async def _reset_puzzle(self, event: GroupMessageEvent) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以重置拼图。")
             return
 
@@ -191,28 +201,41 @@ class PintuPlugin(PluginBase):
             await self.api.send_group_message(group_id, "当前没有进行中的游戏，请管理员使用 开拼图 开始新对局。")
             return
 
-        before_correct = self.game.count_correct_tiles(session.arrangement)
+        before_positions = {
+            index for index, tile in enumerate(session.arrangement, 1) if index == tile
+        }
         session.arrangement[first - 1], session.arrangement[second - 1] = (
             session.arrangement[second - 1],
             session.arrangement[first - 1],
         )
-        after_correct = self.game.count_correct_tiles(session.arrangement)
-        if after_correct > before_correct:
-            gained = True
-            session.scores[str(user_id)] = session.scores.get(str(user_id), 0) + 1
-            score = session.scores[str(user_id)]
+        after_positions = {
+            index for index, tile in enumerate(session.arrangement, 1) if index == tile
+        }
+        if len(after_positions) > len(before_positions):
+            # 每个位置对每个用户只计一次分：来回交换同一处无法再刷分
+            scored_positions = session.scored_positions.setdefault(str(user_id), set())
+            newly_correct = (after_positions - before_positions) - scored_positions
+            if newly_correct:
+                gained = True
+                scored_positions.update(newly_correct)
+                session.scores[str(user_id)] = session.scores.get(str(user_id), 0) + 1
+                score = session.scores[str(user_id)]
         if session.arrangement == CORRECT_ORDER:
             completed = True
             self.game.shuffle(session)
         image = self.game.save_puzzle_image(session)
 
         if completed and gained:
-            text = f"{self.game.mention(user_id)} 操作正确，获得 1 分，当前总分：{score}。拼图已完成并重新打乱，游戏继续！"
+            text = f" 操作正确，获得 1 分，当前总分：{score}。拼图已完成并重新打乱，游戏继续！"
+            at_user_id = user_id
         elif gained:
-            text = f"{self.game.mention(user_id)} 操作正确，获得 1 分，当前总分：{score}。"
+            text = f" 操作正确，获得 1 分，当前总分：{score}。"
+            at_user_id = user_id
         else:
             text = f"已交换位置 {first} 和 {second}，本次未得分。"
-        await self._send_image(group_id, image, text)
+            at_user_id = None
+        # 通过 at_user_id 生成真正的 @ 消息段，而不是文本形式的 CQ 码
+        await self._send_image(group_id, image, text, at_user_id=at_user_id)
 
     # ==================== 状态查询 ====================
 
@@ -237,16 +260,20 @@ class PintuPlugin(PluginBase):
             return
 
         ranking = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        lines = ["当前得分排行："]
-        for index, (uid, s) in enumerate(ranking, 1):
-            lines.append(f"{index}. {self.game.mention(int(uid))}：{s} 分")
-        await self.api.send_group_message(group_id, "\n".join(lines))
+        segments: list = [MessageSegment.text("当前得分排行：\n")]
+        for index, (uid, s) in enumerate(ranking[:MAX_AT_USERS], 1):
+            segments.append(MessageSegment.text(f"{index}. "))
+            segments.append(MessageSegment.at(int(uid)))
+            segments.append(MessageSegment.text(f"：{s} 分\n"))
+        if len(ranking) > MAX_AT_USERS:
+            segments.append(MessageSegment.text(f"等{len(ranking)}人\n"))
+        await self.api.send_group_message_segments(group_id, segments)
 
     # ==================== 权限管理 ====================
 
     async def _add_admin(self, event: GroupMessageEvent, text: str) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以管理拼图权限。")
             return
 
@@ -255,14 +282,14 @@ class PintuPlugin(PluginBase):
             await self.api.send_group_message(group_id, "格式错误，请使用：拼图加管 QQ号 或 拼图加管 @用户")
             return
 
-        if self.game.add_admin(target):
+        if self.game.add_admin(target, group_id):
             await self.api.send_group_message(group_id, f"已将 {target} 添加为拼图管理员。")
         else:
             await self.api.send_group_message(group_id, f"{target} 已经是拼图管理员。")
 
     async def _remove_admin(self, event: GroupMessageEvent, text: str) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以管理拼图权限。")
             return
 
@@ -271,22 +298,22 @@ class PintuPlugin(PluginBase):
             await self.api.send_group_message(group_id, "格式错误，请使用：拼图删管 QQ号 或 拼图删管 @用户")
             return
 
-        if str(target) == str(event.user_id) and len(self.game.get_admins()) <= 1:
+        if str(target) == str(event.user_id) and len(self.game.get_admins(group_id)) <= 1:
             await self.api.send_group_message(group_id, "不能移除最后一个拼图管理员。")
             return
 
-        if self.game.remove_admin(target):
+        if self.game.remove_admin(target, group_id):
             await self.api.send_group_message(group_id, f"已移除拼图管理员 {target}。")
         else:
             await self.api.send_group_message(group_id, f"{target} 不是拼图管理员。")
 
     async def _list_admins(self, event: GroupMessageEvent) -> None:
         group_id = event.group_id
-        if not self.game.is_admin(event.user_id):
+        if not self.game.is_admin(event.user_id, group_id):
             await self.api.send_group_message(group_id, "只有拼图管理员可以查看拼图权限。")
             return
 
-        admins = self.game.get_admins()
+        admins = self.game.get_admins(group_id)
         if not admins:
             await self.api.send_group_message(group_id, "暂无拼图管理员。")
             return
@@ -296,5 +323,46 @@ class PintuPlugin(PluginBase):
 
     # ==================== 消息发送 ====================
 
-    async def _send_image(self, group_id: int, image_path: Path, text: str) -> None:
-        await self.api.send_group_message(group_id, text, image_path=str(image_path))
+    async def _send_image(
+        self,
+        group_id: int,
+        image_path: Path,
+        text: str,
+        at_user_id: Optional[int] = None,
+    ) -> None:
+        try:
+            await self.api.send_group_message(
+                group_id, text, image_path=str(image_path), at_user_id=at_user_id
+            )
+        finally:
+            # 发送完成后立即清理本次渲染的临时图，避免 temp 目录无限增长
+            self.game.remove_temp_image(image_path)
+
+    @staticmethod
+    def _mention_segments(user_ids: list, limit: int = MAX_AT_USERS) -> list:
+        """把多个用户 ID 转成用逗号分隔的 at 消息段（超过上限折叠为等N人）"""
+        total = len(user_ids)
+        shown = user_ids[:limit]
+        segments: list = []
+        for index, uid in enumerate(shown):
+            if index:
+                segments.append(MessageSegment.text("，"))
+            segments.append(MessageSegment.at(int(uid)))
+        if total > len(shown):
+            segments.append(MessageSegment.text(f"，等{total}人"))
+        return segments
+
+    @staticmethod
+    def _ranking_segments(ranking: list, limit: int = MAX_AT_USERS) -> list:
+        """把 (user_id, score) 排行转成 at 消息段序列（超过上限折叠为等N人）"""
+        total = len(ranking)
+        shown = ranking[:limit]
+        segments: list = []
+        for index, (uid, score) in enumerate(shown):
+            if index:
+                segments.append(MessageSegment.text("，"))
+            segments.append(MessageSegment.at(int(uid)))
+            segments.append(MessageSegment.text(f"({score}分)"))
+        if total > len(shown):
+            segments.append(MessageSegment.text(f"，等{total}人"))
+        return segments

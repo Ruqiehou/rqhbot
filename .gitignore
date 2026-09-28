@@ -34,9 +34,15 @@ logs/
 temp/
 tmp/
 
+# Test runtime artifacts
+.run/
+.tools/
+
 # Plugin data
 plugins/*/data/
 plugins/*/temp/
+plugins/*/*.json
+!plugins/*/plugin.json
 
 # Test
 .pytest_cache/

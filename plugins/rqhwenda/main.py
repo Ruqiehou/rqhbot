@@ -67,6 +67,19 @@ class RqhWendaPlugin(PluginBase):
             except Exception as e:
                 logger.error(f"自动保存问答数据失败: {e}")
 
+    async def on_unload(self) -> None:
+        """卸载时停止后台任务并最终落盘
+
+        增删改只设置脏标记，依赖 30 秒一次的定时保存；若不在此处补一次保存，
+        在下个周期前退出或热重载，已提示成功的修改会丢失、已删除的问答会复活。
+        """
+        await super().on_unload()
+        try:
+            if not answer_manager.save_if_dirty():
+                logger.error("卸载时保存问答数据失败，内存中的修改可能未落盘")
+        except Exception as e:
+            logger.error(f"卸载时保存问答数据出错: {e}", exc_info=True)
+
     # ==================== 群消息处理（统一入口） ====================
 
     @filter_registry.group_server

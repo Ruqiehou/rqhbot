@@ -21,17 +21,18 @@ bot:
   load_plugins: true                    # 是否加载插件
   plugin_dir: "plugins"                 # 插件目录
 
-# 日志
+# 日志（logging.* 为预留键：当前仅被 ConfigManager.set_log_level()/set_log_dir()
+#       写入，运行时未读取；setup_logging() 使用环境变量 LOG_LEVEL / LOG_DIR）
 logging:
-  level: "INFO"                         # DEBUG/INFO/WARNING/ERROR/CRITICAL
-  log_dir: "log"
-  log_file: "bot.log"
+  level: "INFO"                         # DEBUG/INFO/WARNING/ERROR/CRITICAL（当前未应用）
+  log_dir: "logs"                       # 当前未应用；运行时默认 logs（LOG_DIR）
+  log_file: "bot.log"                   # 当前未应用；运行时固定 logs/bot.log
 
 # 设置
 settings:
-  debug: false
-  auto_reconnect: true
-  reconnect_interval: 5                 # 重连间隔（秒）
+  debug: false                          # 会应用（BotClient.run 读取）
+  auto_reconnect: true                  # 预留：当前运行时未读取
+  reconnect_interval: 5                 # 重连间隔（秒，预留：当前运行时未读取）
 ```
 
 ## 🔧 ConfigManager API
@@ -43,7 +44,7 @@ from sdk.config import config_manager
 ws_url = config_manager.get("napcat.ws_url", "ws://localhost:3002")
 debug = config_manager.get("settings.debug", False)
 
-# 设置配置（自动保存）
+# 设置配置（仅写入内存，不落盘；需随后调用 config_manager.save()）
 config_manager.set("settings.debug", True)
 
 # 便捷方法（均自动保存）
@@ -56,7 +57,7 @@ config_manager.set_webui_token("your_token")
 config_manager.set_load_plugins(True)
 config_manager.set_plugin_dir("plugins")
 config_manager.set_log_level("DEBUG")
-config_manager.set_log_dir("log")
+config_manager.set_log_dir("logs")
 config_manager.set_debug(False)
 
 # 重新加载 / 查看
@@ -105,10 +106,13 @@ else:
 
 ## ⚠️ 注意事项
 
-1. 所有 `set_*()` 方法调用后自动保存到 `config.yaml`
-2. 配置优先级：命令行参数 > YAML > 环境变量 > 默认值
-3. `config.yaml.example` 为模板，实际使用 `config.yaml`
+1. `set_*()` 便捷方法调用后会自动保存到 `config.yaml`；裸 `set()` 只改内存，需手动 `save()`
+2. 项目没有命令行参数解析。YAML（`ConfigManager`，读取 `config.yaml`）与环境变量（`Config`，读取 `.env`/系统环境变量）是两套互不合并的来源：
+   - `BotClient.run()` 从 YAML 读取 `napcat.ws_url` / `napcat.access_token` / `bot.plugin_dir` / `bot.load_plugins` / `settings.debug`
+   - 日志级别与目录由环境变量 `LOG_LEVEL` / `LOG_DIR`（`Config`）决定，不读取 YAML 的 `logging.*`
+3. `logging.level` / `logging.log_dir` / `logging.log_file` / `settings.auto_reconnect` / `settings.reconnect_interval` 为预留键：当前运行时未读取，保留仅为兼容已有配置文件
+4. `config.yaml.example` 为模板，实际使用 `config.yaml`
 
 ---
 
-**版本**: 3.5.0
+**版本**: 3.7.0

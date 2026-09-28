@@ -1,4 +1,4 @@
-﻿# RqhBot API 参考
+# RqhBot API 参考
 
 ## 目录
 
@@ -414,6 +414,7 @@ for segment in event.message.segments:
 class GroupMessageEvent:
     time: int
     self_id: int
+    post_type: str
     message_type: str = "group"
     sub_type: str
     message_id: int
@@ -422,6 +423,7 @@ class GroupMessageEvent:
     user_name: str      # 优先取群名片，其次昵称
     message: Message
     raw_message: str
+    font: int
     sender: Dict
 ```
 
@@ -432,6 +434,7 @@ class GroupMessageEvent:
 class PrivateMessageEvent:
     time: int
     self_id: int
+    post_type: str
     message_type: str = "private"
     sub_type: str
     message_id: int
@@ -439,6 +442,7 @@ class PrivateMessageEvent:
     user_name: str
     message: Message
     raw_message: str
+    font: int
 ```
 
 ### NoticeEvent 子类

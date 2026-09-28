@@ -73,70 +73,82 @@ class Message:
                 segments.append(item)
                 seg_type = item.get("type", "")
                 seg_data = item.get("data", {})
+                if not isinstance(seg_data, dict):
+                    # 部分实现会下发 "data": null 等非法值，降级为空数据而非丢弃整条消息
+                    seg_data = {}
 
-                if seg_type == "text":
-                    text_parts.append(str(seg_data.get("text", "")))
-                elif seg_type == "face":
-                    face_id = int(seg_data.get("id", 0))
-                    name = get_face_name(face_id)
-                    face_ids.append(face_id)
-                    face_names.append(name)
-                    text_parts.append(f"[表情:{name}]")
-                elif seg_type == "dice":
-                    text_parts.append("[骰子]")
-                elif seg_type == "rps":
-                    text_parts.append("[猜拳]")
-                elif seg_type == "poke":
-                    text_parts.append("[戳一戳]")
-                elif seg_type == "image":
-                    sub_type = int(seg_data.get("sub_type", 0))
-                    has_image = True
-                    if sub_type == 1:
-                        has_sticker = True
-                        summary = seg_data.get("summary") or "表情包"
-                        text_parts.append(f"[表情包:{summary}]")
-                    else:
-                        file_name = seg_data.get("file", "图片")
-                        text_parts.append(f"[图片:{file_name}]")
-                elif seg_type == "at":
-                    qq = int(seg_data.get("qq", 0))
-                    at_user_ids.append(qq)
-                    text_parts.append(f"[CQ:at,qq={qq}]")
-                elif seg_type == "reply":
-                    has_reply = True
-                    reply_message_id = int(seg_data.get("id", 0))
-                    text_parts.append(f"[回复:{reply_message_id}]")
-                elif seg_type == "video":
-                    has_video = True
-                    file_name = seg_data.get("file", "视频")
-                    text_parts.append(f"[视频:{file_name}]")
-                elif seg_type == "record":
-                    has_record = True
-                    text_parts.append("[语音]")
-                elif seg_type == "file":
-                    has_file = True
-                    file_name = seg_data.get("file_name") or seg_data.get("file", "文件")
-                    text_parts.append(f"[文件:{file_name}]")
-                elif seg_type == "forward":
-                    has_forward = True
-                    text_parts.append("[合并转发]")
-                elif seg_type == "node":
-                    has_forward = True
-                    name = seg_data.get("name", "未知")
-                    text_parts.append(f"[转发节点:{name}]")
-                elif seg_type == "music":
-                    has_music = True
-                    title = seg_data.get("title", "音乐")
-                    text_parts.append(f"[音乐:{title}]")
-                elif seg_type == "json":
-                    has_json = True
-                    text_parts.append("[JSON卡片]")
-                elif seg_type == "xml":
-                    has_xml = True
-                    text_parts.append("[XML消息]")
-                elif seg_type == "markdown":
-                    has_markdown = True
-                    text_parts.append("[Markdown]")
+                # 单个畸形/异常段不得让整条消息消失：逐段容错，失败仅跳过该段的解析
+                try:
+                    if seg_type == "text":
+                        text_parts.append(str(seg_data.get("text", "")))
+                    elif seg_type == "face":
+                        face_id = int(seg_data.get("id", 0))
+                        name = get_face_name(face_id)
+                        face_ids.append(face_id)
+                        face_names.append(name)
+                        text_parts.append(f"[表情:{name}]")
+                    elif seg_type == "dice":
+                        text_parts.append("[骰子]")
+                    elif seg_type == "rps":
+                        text_parts.append("[猜拳]")
+                    elif seg_type == "poke":
+                        text_parts.append("[戳一戳]")
+                    elif seg_type == "image":
+                        sub_type = int(seg_data.get("sub_type") or 0)
+                        has_image = True
+                        if sub_type == 1:
+                            has_sticker = True
+                            summary = seg_data.get("summary") or "表情包"
+                            text_parts.append(f"[表情包:{summary}]")
+                        else:
+                            file_name = seg_data.get("file", "图片")
+                            text_parts.append(f"[图片:{file_name}]")
+                    elif seg_type == "at":
+                        qq = seg_data.get("qq", 0)
+                        if str(qq) == "all":
+                            # @全体成员：不是某个用户 ID，仅渲染，不加入 at_user_ids
+                            text_parts.append("[CQ:at,qq=all]")
+                        else:
+                            at_id = int(qq)
+                            at_user_ids.append(at_id)
+                            text_parts.append(f"[CQ:at,qq={at_id}]")
+                    elif seg_type == "reply":
+                        has_reply = True
+                        reply_message_id = int(seg_data.get("id", 0))
+                        text_parts.append(f"[回复:{reply_message_id}]")
+                    elif seg_type == "video":
+                        has_video = True
+                        file_name = seg_data.get("file", "视频")
+                        text_parts.append(f"[视频:{file_name}]")
+                    elif seg_type == "record":
+                        has_record = True
+                        text_parts.append("[语音]")
+                    elif seg_type == "file":
+                        has_file = True
+                        file_name = seg_data.get("file_name") or seg_data.get("file", "文件")
+                        text_parts.append(f"[文件:{file_name}]")
+                    elif seg_type == "forward":
+                        has_forward = True
+                        text_parts.append("[合并转发]")
+                    elif seg_type == "node":
+                        has_forward = True
+                        name = seg_data.get("name", "未知")
+                        text_parts.append(f"[转发节点:{name}]")
+                    elif seg_type == "music":
+                        has_music = True
+                        title = seg_data.get("title", "音乐")
+                        text_parts.append(f"[音乐:{title}]")
+                    elif seg_type == "json":
+                        has_json = True
+                        text_parts.append("[JSON卡片]")
+                    elif seg_type == "xml":
+                        has_xml = True
+                        text_parts.append("[XML消息]")
+                    elif seg_type == "markdown":
+                        has_markdown = True
+                        text_parts.append("[Markdown]")
+                except Exception as e:
+                    logger.warning(f"解析消息段失败，已跳过该段 [{seg_type}]: {e}", exc_info=True)
 
             plain_text = "".join(text_parts)
             return cls(

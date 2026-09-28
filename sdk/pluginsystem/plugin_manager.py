@@ -81,6 +81,15 @@ class HotReloadPluginManager:
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
         self._load_tasks: Dict[str, asyncio.Task] = {}
 
+        # 每个插件一把生命周期锁：串行化同一插件的 load/unload/reload，
+        # 避免并发请求各自观察到插件不存在而重复注册（留下订阅 EventBus 的孤儿实例）
+        self._locks: Dict[str, asyncio.Lock] = {}
+
+        # 在途的 load/reload 任务 (plugin_name -> 任务集合)。这些插件尚未登记进
+        # self.plugins，unload/unload_all 必须能发现并取消它们，否则插件会在
+        # 关机流程之后才完成注册并继续处理消息
+        self._loading: Dict[str, set] = {}
+
         # 将插件根目录的父目录（项目根目录）加入 sys.path，
         # 使 plugins.xxx 形式的包导入能正常工作
         root_dir = str(self.plugin_dir.parent)
@@ -100,8 +109,22 @@ class HotReloadPluginManager:
         # 设置插件管理器引用，让插件可以访问管理器
         PluginBase._plugin_manager = self
 
+    # config.json 只有在包含这些“清单专有”键时才会被当作插件清单回退。
+    # name/version/description/author 单独出现不算：普通数据配置也常带这些字段
+    # （例如 plugins/pintu/config.json 只有 {"admins": []}，绝不能被当成清单）。
+    _MANIFEST_MARKER_KEYS = frozenset(
+        {"enabled", "priority", "dependencies", "python_requires"}
+    )
+
+    @classmethod
+    def _looks_like_manifest(cls, config: Any) -> bool:
+        """判断 config.json 内容是否具备插件清单特征（保守规则）"""
+        if not isinstance(config, dict):
+            return False
+        return bool(cls._MANIFEST_MARKER_KEYS & config.keys())
+
     def _load_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
-        """加载插件配置 (plugin.json)
+        """加载插件配置 (plugin.json，缺失时回退到清单式 config.json)
 
         Args:
             plugin_name: 插件名称
@@ -118,15 +141,24 @@ class HotReloadPluginManager:
             "enabled": True,
             "priority": 100,
             "dependencies": [],
-            "python_requires": ">=3.8",
+            "python_requires": ">=3.10",
         }
 
+        using_fallback = False
         if not config_path.exists():
-            return default_config
+            # 兼容只提供 config.json 的插件（如 plugins/rqhmain、plugins/rqhshen）
+            fallback_path = self.plugin_dir / plugin_name / "config.json"
+            if not fallback_path.exists():
+                return default_config
+            config_path = fallback_path
+            using_fallback = True
 
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
+            # config.json 可能是普通数据配置而非清单，只有确实含清单键时才采用
+            if using_fallback and not self._looks_like_manifest(config):
+                return default_config
             # 合并默认值
             for key, value in default_config.items():
                 if key not in config:
@@ -237,6 +269,37 @@ class HotReloadPluginManager:
             error = task.exception()
             logger.error(f"插件 {plugin_name} 加载任务失败", exc_info=(type(error), error, error.__traceback__))
 
+    # ==================== 生命周期串行化辅助 ====================
+
+    def _get_lock(self, plugin_name: str) -> asyncio.Lock:
+        """获取（或创建）指定插件的生命周期锁
+
+        锁按插件名缓存，数量上限是“管理器见过的插件名集合”，
+        不随 load/unload/reload 调用次数增长。
+        """
+        lock = self._locks.get(plugin_name)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[plugin_name] = lock
+        return lock
+
+    def _track_loading(self, plugin_name: str) -> Optional[asyncio.Task]:
+        """把当前任务登记为该插件的在途 load/reload 任务"""
+        task = asyncio.current_task()
+        if task is not None:
+            self._loading.setdefault(plugin_name, set()).add(task)
+        return task
+
+    def _untrack_loading(self, plugin_name: str, task: Optional[asyncio.Task]) -> None:
+        if task is None:
+            return
+        tasks = self._loading.get(plugin_name)
+        if tasks is None:
+            return
+        tasks.discard(task)
+        if not tasks:
+            self._loading.pop(plugin_name, None)
+
     async def load_plugin(
         self, plugin_name: str, api: Any, event_bus: Any
     ) -> bool:
@@ -262,9 +325,24 @@ class HotReloadPluginManager:
         """
         self._main_loop = asyncio.get_running_loop()
 
+        # 登记在途加载，使 unload_plugin / unload_all_plugins 能发现
+        # 尚未进入 self.plugins 的加载并取消它
+        task = self._track_loading(plugin_name)
+        try:
+            # 同一插件的 load/unload/reload 全程串行化，避免并发 reload
+            # 各自观察到插件不存在而重复注册出孤儿实例
+            async with self._get_lock(plugin_name):
+                return await self._load_plugin_locked(plugin_name, api, event_bus)
+        finally:
+            self._untrack_loading(plugin_name, task)
+
+    async def _load_plugin_locked(
+        self, plugin_name: str, api: Any, event_bus: Any
+    ) -> bool:
+        """load_plugin 的实际实现（调用方必须已持有该插件的生命周期锁）"""
         # 如果已经加载，先卸载旧版（取消订阅 + 取消任务）
         if plugin_name in self.plugins:
-            await self.unload_plugin(plugin_name)
+            await self._unload_plugin_locked(plugin_name)
 
         # 加载插件配置
         config = self._load_plugin_config(plugin_name)
@@ -354,36 +432,63 @@ class HotReloadPluginManager:
         """卸载插件
 
         调用 PluginBase.on_unload() 清理事件订阅和后台任务，
-        然后从内部记录中移除。
+        然后从内部记录中移除。可安全地并发调用，也幂等。
 
         Args:
             plugin_name: 插件名称
         """
-        if plugin_name not in self.plugins:
-            return
+        # 若该插件正在 load/reload（尚未登记进 self.plugins），先取消在途加载。
+        # 必须在拿锁之前取消，否则会等待加载完成而无法及时终止关机流程。
+        pending = [
+            t
+            for t in self._loading.get(plugin_name, ())
+            if t is not asyncio.current_task()
+        ]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
+        async with self._get_lock(plugin_name):
+            await self._unload_plugin_locked(plugin_name)
+
+    async def _unload_plugin_locked(self, plugin_name: str) -> None:
+        """unload_plugin 的实际实现（调用方必须已持有该插件的生命周期锁）"""
+        # 取消 register_plugin 创建的在途 on_load 任务
         task = self._load_tasks.pop(plugin_name, None)
         if task is not None and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-        instance = self.plugins[plugin_name]
+        instance = self.plugins.get(plugin_name)
+        if instance is None:
+            # 幂等：未登记（或已被并发卸载移除）时直接返回，绝不抛 KeyError
+            return
 
-        # 1. 调用插件的 on_unload 清理方法
         try:
+            # 1. 调用插件的 on_unload 清理方法
             await instance.on_unload()
+        except asyncio.CancelledError:
+            # 当前卸载任务确实被取消时才继续向上传播；
+            # 插件自身抛出的 CancelledError 当作普通清理错误处理
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise
+            logger.error(f"插件 {plugin_name} on_unload 被取消", exc_info=True)
         except Exception as e:
             logger.error(f"插件 {plugin_name} on_unload 出错: {e}", exc_info=True)
+        finally:
+            # 2. 无论 on_unload 成功、失败还是被取消，都必须完成登记清理；
+            #    仅当登记项仍是本次卸载的实例时才删除，避免误删并发新实例
+            if self.plugins.get(plugin_name) is instance:
+                del self.plugins[plugin_name]
+            if plugin_name in self.plugin_modules:
+                del self.plugin_modules[plugin_name]
 
-        # 2. 从内部记录中移除
-        del self.plugins[plugin_name]
-        if plugin_name in self.plugin_modules:
-            del self.plugin_modules[plugin_name]
-
-        # 3. 清理配置缓存
-        cache_keys_to_remove = [k for k in self._plugin_configs if k == plugin_name]
-        for key in cache_keys_to_remove:
-            del self._plugin_configs[key]
+            # 3. 清理配置缓存
+            cache_keys_to_remove = [k for k in self._plugin_configs if k == plugin_name]
+            for key in cache_keys_to_remove:
+                del self._plugin_configs[key]
 
         logger.info(f"插件 {plugin_name} 已卸载")
 
@@ -412,13 +517,20 @@ class HotReloadPluginManager:
             logger.error(f"热重载插件 {plugin_name} 失败：缺少 api 或 event_bus")
             return False
 
-        # 1. 先卸载旧插件（如果已加载）
-        if plugin_name in self.plugins:
-            await self.unload_plugin(plugin_name)
-            logger.info(f"插件 {plugin_name} 已卸载，准备重新加载")
+        # 整个 unload + load 过程持有同一把插件锁，并与在途加载一起登记，
+        # 从而与并发的 load/unload/reload 完全串行化
+        task = self._track_loading(plugin_name)
+        try:
+            async with self._get_lock(plugin_name):
+                # 1. 先卸载旧插件（如果已加载）
+                if plugin_name in self.plugins:
+                    await self._unload_plugin_locked(plugin_name)
+                    logger.info(f"插件 {plugin_name} 已卸载，准备重新加载")
 
-        # 2. 重新加载插件
-        success = await self.load_plugin(plugin_name, _api, _event_bus)
+                # 2. 重新加载插件
+                success = await self._load_plugin_locked(plugin_name, _api, _event_bus)
+        finally:
+            self._untrack_loading(plugin_name, task)
 
         if success:
             logger.info(f"插件 {plugin_name} 热重载完成")
@@ -465,9 +577,20 @@ class HotReloadPluginManager:
         return loaded_names
 
     async def unload_all_plugins(self) -> None:
-        """卸载所有已加载的插件"""
-        for plugin_name in list(self.plugins.keys()):
-            await self.unload_plugin(plugin_name)
+        """卸载所有已加载的插件（含尚未完成注册的在途加载）
+
+        单个插件卸载失败不会阻止其余插件卸载，否则关机时后面的插件
+        数据永远不会落盘。
+        """
+        # 快照：同时包含已登记插件和在途加载的插件名
+        plugin_names = list(dict.fromkeys([*self.plugins, *self._loading]))
+        for plugin_name in plugin_names:
+            try:
+                await self.unload_plugin(plugin_name)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(f"卸载插件 {plugin_name} 失败，继续卸载其余插件")
 
     # ==================== 查询 ====================
 
@@ -503,15 +626,17 @@ class HotReloadPluginManager:
         Args:
             plugin_name: 插件名称
         """
-        prefixes = (
-            f"plugins.{plugin_name}",
-            f"plugins.{plugin_name}.",
-            f"rqhbot_plugin_{plugin_name}_",
-        )
+        pkg_name = f"plugins.{plugin_name}"
+        submodule_prefix = f"{pkg_name}."
+        legacy_prefix = f"rqhbot_plugin_{plugin_name}_"
+        # 模块名必须精确等于包名，或以 "包名." / 旧扁平前缀开头；
+        # 否则清理 "demo" 时会连带删掉 "plugins.demo_extra" 这类无关插件的缓存
         to_delete = [
             mod_name
             for mod_name in sys.modules
-            if any(mod_name.startswith(p) for p in prefixes)
+            if mod_name == pkg_name
+            or mod_name.startswith(submodule_prefix)
+            or mod_name.startswith(legacy_prefix)
         ]
         for mod_name in to_delete:
             del sys.modules[mod_name]

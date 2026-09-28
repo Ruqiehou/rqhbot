@@ -45,6 +45,9 @@ class RqhshenPlugin(PluginBase):
 
     async def on_unload(self):
         logger.info("卸载中")
+        # 必须调用基类清理：退订 EventBus、取消后台任务、关闭线程池。
+        # 否则显式卸载或热重载后，旧实例仍会响应消息，重载后重复回复
+        await super().on_unload()
 
     # ==================== 统一消息入口 ====================
 
