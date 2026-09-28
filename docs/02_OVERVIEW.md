@@ -62,7 +62,7 @@ rqhbot/
 
 ## 🔧 技术栈
 
-- Python 3.8+ · websockets · aiohttp · PyYAML · python-dotenv
+- Python 3.10+ · websockets · aiohttp · PyYAML · python-dotenv · requests · packaging
 
 ## 📊 架构设计
 

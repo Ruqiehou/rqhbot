@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 ![Version](https://img.shields.io/badge/Version-3.7.0-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![OneBot](https://img.shields.io/badge/OneBot-11-00b894.svg)
@@ -21,21 +21,19 @@
 ```
 run.py
  └── sdk  3.7.0 (协议 / 插件 / 配置)
-      └── plugins/  8 个插件
+      └── plugins/  6 个插件
 ```
 
-## 8 个插件
+## 6 个插件
 
-| 插件 | 功能 | 代码量 | 数据存储 |
-|------|------|--------|----------|
-| masu | AI 聊天（OpenAI） | ~350 行 | 内存 session |
-| rqhspeech | 发言统计 / 排行榜 | ~700 行 | SQLite |
-| rqhmain | 综合（运势/天气/新闻/词云/总结） | ~900 行 | JSONL |
-| pintu | 拼图游戏 | ~500 行 | 内存 |
-| rqhshen | 修仙游戏 | ~400 行 | JSON |
-| rqhwenda | 问答匹配 | ~300 行 | JSON |
-| theme_diary | 主题日记 | ~200 行 | Markdown |
-| group_summary | 群聊总结 | ~200 行 | JSON |
+| 插件 | 功能 | 数据存储 |
+|------|------|----------|
+| rqhspeech | 发言统计 / 排行榜 | JSON 文件 |
+| rqhmain | 综合（运势/天气/新闻/发图） | 无持久化（静态 JSON 资源） |
+| pintu | 拼图游戏 | 内存 |
+| rqhshen | 修仙游戏 | JSON |
+| rqhwenda | 问答匹配 | JSON |
+| group_summary | 群聊总结 | JSONL |
 
 ## 数据流
 
@@ -68,7 +66,7 @@ python run.py
 ```text
 rqhbot/
 ├── sdk/              # 框架核心
-├── plugins/          # 8 个插件
+├── plugins/          # 6 个插件
 ├── docs/             # 文档
 ├── tests/            # 测试
 ├── config.yaml.example
@@ -99,21 +97,19 @@ pip install .
 ```
 run.py
  └── sdk  3.7.0 (protocol / plugins / config)
-      └── plugins/  8 plugins
+      └── plugins/  6 plugins
 ```
 
-### 8 Plugins
+### 6 Plugins
 
-| Plugin | Description | LOC | Storage |
-|--------|-------------|-----|---------|
-| masu | AI chat (OpenAI) | ~350 | In-memory session |
-| rqhspeech | Message stats / leaderboard | ~700 | SQLite |
-| rqhmain | Misc (horoscope/weather/news/wordcloud/summary) | ~900 | JSONL |
-| pintu | Jigsaw puzzle game | ~500 | In-memory |
-| rqhshen | Cultivation game | ~400 | JSON |
-| rqhwenda | Q&A matching | ~300 | JSON |
-| theme_diary | Themed diary | ~200 | Markdown |
-| group_summary | Group chat summary | ~200 | JSON |
+| Plugin | Description | Storage |
+|--------|-------------|---------|
+| rqhspeech | Message stats / leaderboard | JSON files |
+| rqhmain | Misc (horoscope/weather/news/image) | None (static JSON resources) |
+| pintu | Jigsaw puzzle game | In-memory |
+| rqhshen | Cultivation game | JSON |
+| rqhwenda | Q&A matching | JSON |
+| group_summary | Group chat summary | JSONL |
 
 ### Data Flow
 

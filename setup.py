@@ -25,7 +25,7 @@ setup(
         "Repository": "https://github.com/rqhbot/rqhbot",
         "Issues": "https://github.com/rqhbot/rqhbot/issues",
     },
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     packages=find_packages(include=["sdk*", "plugins*"]),
     install_requires=[
         "websockets>=16.0",
@@ -34,6 +34,7 @@ setup(
         "requests>=2.32",
         "aiohttp>=3.11",
         "packaging>=23.0",
+        "Pillow>=9.0",
     ],
     extras_require={
         "openai": ["openai>=1.55"],
@@ -51,8 +52,6 @@ setup(
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
