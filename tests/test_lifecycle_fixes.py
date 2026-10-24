@@ -57,7 +57,7 @@ async def test_normal_close_marks_client_disconnected() -> None:
 async def test_unexpected_close_schedules_reconnect() -> None:
     """意外断线应自动安排重连"""
     client = NapCatClient()
-    client.RECONNECT_DELAY = 0.01
+    client.reconnect_delay = 0.01  # 设置实例属性，而非类属性
     client.ws = _NormallyClosedSocket()
     client.msg_queue = asyncio.Queue()
     client._connected = True
