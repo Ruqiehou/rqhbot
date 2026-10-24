@@ -34,10 +34,11 @@ def _get_lock(user_id: str) -> threading.Lock:
 
 
 def _week_key_of(date_str: str) -> str:
-    """日期字符串 -> 周标识（以周一为起点）"""
+    """日期字符串 -> 周标识（以周一为起点，跨年周归入正确的 ISO 年）"""
     d = datetime.strptime(date_str, "%Y-%m-%d")
     week_start = d - timedelta(days=d.weekday())
-    return f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+    iso_year, iso_week, _ = week_start.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
 
 
 def _now_str() -> str:
@@ -230,20 +231,30 @@ def _parse_week_key(identifier: str) -> Tuple[Optional[str], str]:
     if identifier.startswith(("W", "w")):
         try:
             week_num = int(identifier[1:])
-            if not 1 <= week_num <= 53:
-                return None, "无效的周数"
-            year = datetime.now().year
-            week_key = f"{year}-W{week_num:02d}"
-            first = datetime.strptime(f"{year}-W{week_num:02d}-1", "%Y-W%W-%w")
-            last = first + timedelta(days=6)
-            return week_key, f"{year}年第{week_num}周 ({first.strftime('%Y-%m-%d')} 至 {last.strftime('%Y-%m-%d')})"
         except (ValueError, IndexError):
             return None, "周数格式错误"
+        if not 1 <= week_num <= 53:
+            return None, "无效的周数"
+
+        # 使用 ISO 年而非日历年（1 月 1 日可能属于上一 ISO 年），
+        # 并校验该 ISO 年是否真的存在第 week_num 周
+        year = datetime.now().isocalendar()[0]
+        max_week = datetime(year, 12, 28).isocalendar()[1]
+        if week_num > max_week:
+            return None, f"错误：{year} 年只有 {max_week} 周，不存在第 {week_num} 周"
+
+        first = datetime.fromisocalendar(year, week_num, 1)
+        last = first + timedelta(days=6)
+        return (
+            f"{year}-W{week_num:02d}",
+            f"{year}年第{week_num}周 ({first.strftime('%Y-%m-%d')} 至 {last.strftime('%Y-%m-%d')})",
+        )
 
     try:
         d = datetime.strptime(identifier, "%Y-%m-%d")
         week_start = d - timedelta(days=d.weekday())
-        week_key = f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+        iso_year, iso_week, _ = week_start.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
         week_end = week_start + timedelta(days=6)
         return week_key, f"{week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
     except ValueError:

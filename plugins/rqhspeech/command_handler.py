@@ -160,7 +160,8 @@ class CommandHandler:
         stats = self.user_mgr.get_user_group_stats(user_id, group_id)
         now = datetime.now()
         week_start = now - timedelta(days=now.weekday())
-        week_key = f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+        iso_year, iso_week, _ = week_start.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
         today_count = stats["today"]
         week_total = stats["week_total"]
         daily_details = stats["daily_details"]
@@ -428,7 +429,8 @@ class CommandHandler:
         stats = self.user_mgr.get_user_group_stats(target_user_id, group_id)
         now = datetime.now()
         week_start = now - timedelta(days=now.weekday())
-        week_key = f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+        iso_year, iso_week, _ = week_start.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
         today_count = stats["today"]
         week_total = stats["week_total"]
         daily_details = stats["daily_details"]

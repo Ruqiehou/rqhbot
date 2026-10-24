@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Self
 
@@ -14,9 +17,72 @@ from .emoji_map import get_face_name
 logger = logging.getLogger(__name__)
 
 # ---- 类型别名 ----
-MessageSegment = Dict[str, Any]
+MessageSegmentData = Dict[str, Any]
 SenderInfo = Dict[str, Any]
 EventData = Dict[str, Any]
+
+# ---- 外部输入安全转换 ----
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    """把外部输入安全转换为 int，缺失或非法时回退默认值"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    """确保字段是字典，非法值降级为空字典"""
+    return value if isinstance(value, dict) else {}
+
+
+# ---- CQ 码解析 ----
+_CQ_PATTERN = re.compile(r"\[CQ:([a-zA-Z0-9_]+)((?:,[^,\]]*)?)\]")
+
+
+def _cq_unescape(text: str) -> str:
+    return (
+        text.replace("&#91;", "[")
+        .replace("&#93;", "]")
+        .replace("&#44;", ",")
+        .replace("&amp;", "&")
+    )
+
+
+def _parse_cq_string(raw: str) -> Optional[List[MessageSegmentData]]:
+    """把 CQ 码字符串转换为消息段数组；不含 CQ 码时返回 None"""
+    if "[CQ:" not in raw:
+        return None
+
+    segments: List[MessageSegmentData] = []
+    pos = 0
+    for match in _CQ_PATTERN.finditer(raw):
+        if match.start() > pos:
+            text = _cq_unescape(raw[pos:match.start()])
+            if text:
+                segments.append({"type": "text", "data": {"text": text}})
+
+        data: Dict[str, Any] = {}
+        for part in match.group(2).split(",")[1:]:
+            if "=" in part:
+                key, value = part.split("=", 1)
+                data[key] = _cq_unescape(value)
+        segments.append({"type": match.group(1), "data": data})
+        pos = match.end()
+
+    if pos < len(raw):
+        text = _cq_unescape(raw[pos:])
+        if text:
+            segments.append({"type": "text", "data": {"text": text}})
+    return segments
+
+
+# ---- 消息解析缓存 ----
+# 同一条消息在不同事件中会被反复解析（如撤回、引用、历史消息），
+# 以 raw_message（CQ 码）为键缓存解析结果，命中时直接复制，避免逐段解析。
+_MESSAGE_CACHE: Dict[str, "Message"] = {}
+_MESSAGE_CACHE_MAXSIZE: int = 512
 
 
 @dataclass
@@ -24,7 +90,7 @@ class Message:
     """消息内容"""
     plain_text: str = ""
     raw_message: str = ""
-    segments: List[MessageSegment] = field(default_factory=list)
+    segments: List[MessageSegmentData] = field(default_factory=list)
     face_ids: List[int] = field(default_factory=list)        # 表情 ID 列表
     face_names: List[str] = field(default_factory=list)      # 表情名称列表
     has_dice: bool = False                                    # 是否含骰子
@@ -45,10 +111,80 @@ class Message:
     has_markdown: bool = False                                # 是否含 Markdown
 
     @classmethod
+    def _copy_from(cls, other: "Message") -> "Message":
+        """从缓存中的 Message 生成独立副本
+
+        缓存对象会被多个事件共享，复制可变字段（列表）可避免某个处理器
+        修改 segments / at_user_ids 时污染后续事件。
+        """
+        return cls(
+            plain_text=other.plain_text,
+            raw_message=other.raw_message,
+            segments=list(other.segments),
+            face_ids=list(other.face_ids),
+            face_names=list(other.face_names),
+            has_dice=other.has_dice,
+            has_rps=other.has_rps,
+            has_poke=other.has_poke,
+            has_sticker=other.has_sticker,
+            at_user_ids=list(other.at_user_ids),
+            has_reply=other.has_reply,
+            reply_message_id=other.reply_message_id,
+            has_image=other.has_image,
+            has_video=other.has_video,
+            has_record=other.has_record,
+            has_file=other.has_file,
+            has_forward=other.has_forward,
+            has_music=other.has_music,
+            has_json=other.has_json,
+            has_xml=other.has_xml,
+            has_markdown=other.has_markdown,
+        )
+
+    @classmethod
     def from_raw(cls, value: Any, raw_message: str = "") -> Self:
+        """解析消息（带 LRU 缓存）
+
+        仅当消息为数组格式且提供 raw_message 时走缓存；其余情况直接解析。
+        """
+        cache_key: Optional[str] = None
+        if raw_message and isinstance(value, list):
+            try:
+                fingerprint = hashlib.sha256(
+                    json.dumps(
+                        value, sort_keys=True, ensure_ascii=False, default=str
+                    ).encode("utf-8")
+                ).hexdigest()
+            except (TypeError, ValueError):
+                fingerprint = ""
+            if fingerprint:
+                # raw_message 可能重复（如相同文本），拼上结构指纹避免串消息
+                cache_key = f"{raw_message}\x00{fingerprint}"
+
+        if cache_key is not None:
+            cached = _MESSAGE_CACHE.get(cache_key)
+            if cached is not None:
+                # 命中后移至末尾，实现 LRU 语义
+                _MESSAGE_CACHE.pop(cache_key)
+                _MESSAGE_CACHE[cache_key] = cached
+                return cls._copy_from(cached)
+
+        message = cls._parse(value, raw_message)
+
+        if cache_key is not None:
+            if len(_MESSAGE_CACHE) >= _MESSAGE_CACHE_MAXSIZE:
+                # 淘汰最久未使用的条目
+                _MESSAGE_CACHE.pop(next(iter(_MESSAGE_CACHE)), None)
+            # 缓存中存副本，保证调用方拿到的对象不会被缓存复用
+            _MESSAGE_CACHE[cache_key] = cls._copy_from(message)
+
+        return message
+
+    @classmethod
+    def _parse(cls, value: Any, raw_message: str = "") -> Self:
         if isinstance(value, list):
             text_parts: List[str] = []
-            segments: List[MessageSegment] = []
+            segments: List[MessageSegmentData] = []
             face_ids: List[int] = []
             face_names: List[str] = []
             at_user_ids: List[int] = []
@@ -82,7 +218,7 @@ class Message:
                     if seg_type == "text":
                         text_parts.append(str(seg_data.get("text", "")))
                     elif seg_type == "face":
-                        face_id = int(seg_data.get("id", 0))
+                        face_id = _as_int(seg_data.get("id", 0))
                         name = get_face_name(face_id)
                         face_ids.append(face_id)
                         face_names.append(name)
@@ -94,7 +230,7 @@ class Message:
                     elif seg_type == "poke":
                         text_parts.append("[戳一戳]")
                     elif seg_type == "image":
-                        sub_type = int(seg_data.get("sub_type") or 0)
+                        sub_type = _as_int(seg_data.get("sub_type") or 0)
                         has_image = True
                         if sub_type == 1:
                             has_sticker = True
@@ -109,12 +245,12 @@ class Message:
                             # @全体成员：不是某个用户 ID，仅渲染，不加入 at_user_ids
                             text_parts.append("[CQ:at,qq=all]")
                         else:
-                            at_id = int(qq)
+                            at_id = _as_int(qq)
                             at_user_ids.append(at_id)
                             text_parts.append(f"[CQ:at,qq={at_id}]")
                     elif seg_type == "reply":
                         has_reply = True
-                        reply_message_id = int(seg_data.get("id", 0))
+                        reply_message_id = _as_int(seg_data.get("id", 0))
                         text_parts.append(f"[回复:{reply_message_id}]")
                     elif seg_type == "video":
                         has_video = True
@@ -176,6 +312,9 @@ class Message:
             )
 
         text = str(value or raw_message or "")
+        cq_segments = _parse_cq_string(text)
+        if cq_segments:
+            return cls._parse(cq_segments, raw_message or text)
         return cls(plain_text=text, raw_message=raw_message or text)
 
     def get_plain_text(self) -> str:
@@ -230,22 +369,22 @@ class GroupMessageEvent(BaseEvent):
         raw_message: str = str(data.get("raw_message", ""))
         msg = Message.from_raw(data.get("message", raw_message), raw_message)
 
-        snd: SenderInfo = data.get("sender", {})
+        snd: SenderInfo = _as_dict(data.get("sender"))
         uname: str = str(snd.get("card", "") or snd.get("nickname", ""))
 
         return cls(
-            time=int(data.get("time", 0)),
-            self_id=int(data.get("self_id", 0)),
+            time=_as_int(data.get("time")),
+            self_id=_as_int(data.get("self_id")),
             post_type=str(data.get("post_type", "message")),
             message_type=str(data.get("message_type", "group")),
             sub_type=str(data.get("sub_type", "")),
-            message_id=int(data.get("message_id", 0)),
-            group_id=int(data.get("group_id", 0)),
-            user_id=int(data.get("user_id", 0)),
+            message_id=_as_int(data.get("message_id")),
+            group_id=_as_int(data.get("group_id")),
+            user_id=_as_int(data.get("user_id")),
             user_name=uname,
             message=msg,
             raw_message=str(data.get("raw_message", "")),
-            font=int(data.get("font", 0)),
+            font=_as_int(data.get("font")),
             sender=snd,
         )
 
@@ -275,7 +414,7 @@ class PrivateMessageEvent(BaseEvent):
         raw_message: str = str(data.get("raw_message", ""))
         msg = Message.from_raw(data.get("message", raw_message), raw_message)
 
-        snd: SenderInfo = data.get("sender", {})
+        snd: SenderInfo = _as_dict(data.get("sender"))
         uname: str = str(
             data.get("user_name", "")
             or snd.get("card", "")
@@ -283,17 +422,17 @@ class PrivateMessageEvent(BaseEvent):
         )
 
         return cls(
-            time=int(data.get("time", 0)),
-            self_id=int(data.get("self_id", 0)),
+            time=_as_int(data.get("time")),
+            self_id=_as_int(data.get("self_id")),
             post_type=str(data.get("post_type", "message")),
             message_type=str(data.get("message_type", "private")),
             sub_type=str(data.get("sub_type", "")),
-            message_id=int(data.get("message_id", 0)),
-            user_id=int(data.get("user_id", 0)),
+            message_id=_as_int(data.get("message_id")),
+            user_id=_as_int(data.get("user_id")),
             user_name=uname,
             message=msg,
             raw_message=str(data.get("raw_message", "")),
-            font=int(data.get("font", 0)),
+            font=_as_int(data.get("font")),
         )
 
 
@@ -329,12 +468,12 @@ class NoticeEvent(BaseEvent):
     @classmethod
     def _build(cls, data: EventData) -> Self:
         return cls(
-            time=int(data.get("time", 0)),
-            self_id=int(data.get("self_id", 0)),
+            time=_as_int(data.get("time")),
+            self_id=_as_int(data.get("self_id")),
             post_type=str(data.get("post_type", "notice")),
             notice_type=str(data.get("notice_type", "")),
-            user_id=int(data.get("user_id", 0)),
-            group_id=int(data.get("group_id", 0)),
+            user_id=_as_int(data.get("user_id")),
+            group_id=_as_int(data.get("group_id")),
         )
 
 
@@ -351,7 +490,7 @@ class GroupIncreaseNotice(NoticeEvent):
         return cls(
             **{k: v for k, v in base.__dict__.items()},
             sub_type=str(data.get("sub_type", "")),
-            operator_id=int(data.get("operator_id", 0)),
+            operator_id=_as_int(data.get("operator_id")),
         )
 
 
@@ -368,7 +507,7 @@ class GroupDecreaseNotice(NoticeEvent):
         return cls(
             **{k: v for k, v in base.__dict__.items()},
             sub_type=str(data.get("sub_type", "")),
-            operator_id=int(data.get("operator_id", 0)),
+            operator_id=_as_int(data.get("operator_id")),
         )
 
 
@@ -386,8 +525,8 @@ class GroupBanNotice(NoticeEvent):
         return cls(
             **{k: v for k, v in base.__dict__.items()},
             sub_type=str(data.get("sub_type", "")),
-            operator_id=int(data.get("operator_id", 0)),
-            duration=int(data.get("duration", 0)),
+            operator_id=_as_int(data.get("operator_id")),
+            duration=_as_int(data.get("duration")),
         )
 
 
@@ -403,8 +542,8 @@ class GroupRecallNotice(NoticeEvent):
         base = NoticeEvent._build(data)
         return cls(
             **{k: v for k, v in base.__dict__.items()},
-            operator_id=int(data.get("operator_id", 0)),
-            message_id=int(data.get("message_id", 0)),
+            operator_id=_as_int(data.get("operator_id")),
+            message_id=_as_int(data.get("message_id")),
         )
 
 
@@ -419,7 +558,7 @@ class FriendRecallNotice(NoticeEvent):
         base = NoticeEvent._build(data)
         return cls(
             **{k: v for k, v in base.__dict__.items()},
-            message_id=int(data.get("message_id", 0)),
+            message_id=_as_int(data.get("message_id")),
         )
 
 
@@ -434,7 +573,7 @@ class PokeNotice(NoticeEvent):
         base = NoticeEvent._build(data)
         return cls(
             **{k: v for k, v in base.__dict__.items()},
-            target_id=int(data.get("target_id", 0)),
+            target_id=_as_int(data.get("target_id")),
         )
 
 
@@ -509,8 +648,68 @@ class EssenceMsgNotice(NoticeEvent):
         return cls(
             **{k: v for k, v in base.__dict__.items()},
             sub_type=str(data.get("sub_type", "")),
-            message_id=int(data.get("message_id", 0)),
+            message_id=_as_int(data.get("message_id")),
         )
+
+
+@dataclass
+class MetaEvent(BaseEvent):
+    """元事件基类（心跳、生命周期等）"""
+
+    meta_event_type: str = ""
+    sub_type: str = ""
+
+    @classmethod
+    def from_dict(cls, data: EventData) -> Self:
+        meta_event_type = str(data.get("meta_event_type", ""))
+        _map = {
+            "heartbeat": HeartbeatEvent,
+            "lifecycle": LifecycleEvent,
+        }
+        target = _map.get(meta_event_type, MetaEvent)
+        return target._build(data)  # type: ignore[return-value]
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        return cls(
+            time=_as_int(data.get("time")),
+            self_id=_as_int(data.get("self_id")),
+            post_type=str(data.get("post_type", "meta_event")),
+            meta_event_type=str(data.get("meta_event_type", "")),
+            sub_type=str(data.get("sub_type", "")),
+        )
+
+
+@dataclass
+class HeartbeatEvent(MetaEvent):
+    """心跳事件"""
+
+    meta_event_type: str = "heartbeat"
+    status: Dict[str, Any] = field(default_factory=dict)
+    interval: int = 0
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = MetaEvent._build(data)
+        status = _as_dict(data.get("status"))
+        return cls(
+            **{k: v for k, v in base.__dict__.items()},
+            status=status,
+            interval=_as_int(data.get("interval") or status.get("interval")),
+        )
+
+
+@dataclass
+class LifecycleEvent(MetaEvent):
+    """生命周期事件（连接建立 / 启用 / 禁用）"""
+
+    meta_event_type: str = "lifecycle"
+    sub_type: str = ""
+
+    @classmethod
+    def _build(cls, data: EventData) -> Self:
+        base = MetaEvent._build(data)
+        return cls(**{k: v for k, v in base.__dict__.items()})
 
 
 @dataclass
@@ -534,11 +733,11 @@ class RequestEvent(BaseEvent):
     @classmethod
     def _build(cls, data: EventData) -> Self:
         return cls(
-            time=int(data.get("time", 0)),
-            self_id=int(data.get("self_id", 0)),
+            time=_as_int(data.get("time")),
+            self_id=_as_int(data.get("self_id")),
             post_type=str(data.get("post_type", "request")),
             request_type=str(data.get("request_type", "")),
-            user_id=int(data.get("user_id", 0)),
+            user_id=_as_int(data.get("user_id")),
             comment=str(data.get("comment", "")),
             flag=str(data.get("flag", "")),
         )
@@ -567,6 +766,6 @@ class GroupRequestEvent(RequestEvent):
         base = RequestEvent._build(data)
         return cls(
             **{k: v for k, v in base.__dict__.items()},
-            group_id=int(data.get("group_id", 0)),
+            group_id=_as_int(data.get("group_id")),
             sub_type=str(data.get("sub_type", "")),
         )

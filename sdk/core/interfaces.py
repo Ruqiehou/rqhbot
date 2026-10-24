@@ -58,16 +58,18 @@ class IClient(Protocol):
         self,
         action: str,
         params: Optional[Dict[str, Any]] = None,
-        max_retries: int = 3,
+        max_retries: Optional[int] = None,
         retry_delay: float = 1.0,
+        timeout: Optional[float] = None,
     ) -> APIResponse:
-        """调用底层 API（带重试）
+        """调用底层 API
 
         Args:
             action: API 动作名称
             params: 参数
-            max_retries: 最大重试次数
+            max_retries: 最大尝试次数（含首次），缺省由实现决定
             retry_delay: 重试间隔（秒）
+            timeout: 单次调用超时（秒）
 
         Returns:
             APIResponse —— API 返回的 data 字段
@@ -185,6 +187,26 @@ class IClient(Protocol):
         """设置群成员名片"""
         ...
 
+    async def get_group_info(self, group_id: int, no_cache: bool = False) -> APIResponse:
+        """获取群信息"""
+        ...
+
+    async def set_group_whole_ban(self, group_id: int, enable: bool = True) -> APIResponse:
+        """设置群全员禁言"""
+        ...
+
+    async def set_group_admin(self, group_id: int, user_id: int, enable: bool = True) -> APIResponse:
+        """设置群管理员"""
+        ...
+
+    async def set_group_name(self, group_id: int, group_name: str) -> APIResponse:
+        """设置群名"""
+        ...
+
+    async def set_group_leave(self, group_id: int, is_dismiss: bool = False) -> APIResponse:
+        """退出群聊"""
+        ...
+
     # ---- 好友管理 ----
     async def get_friend_list(self) -> APIResponse:
         """获取好友列表"""
@@ -213,6 +235,31 @@ class IClient(Protocol):
 
     async def get_version_info(self) -> APIResponse:
         """获取版本信息"""
+        ...
+
+    # ---- 状态查询 ----
+    async def get_status(self) -> APIResponse:
+        """获取运行状态"""
+        ...
+
+    async def can_send_image(self) -> bool:
+        """检测是否可以发送图片"""
+        ...
+
+    async def can_send_record(self) -> bool:
+        """检测是否可以发送语音"""
+        ...
+
+    async def get_image(self, file: str) -> APIResponse:
+        """获取图片信息"""
+        ...
+
+    async def get_record(self, file: str, out_format: str = "mp3") -> APIResponse:
+        """获取语音信息"""
+        ...
+
+    async def get_forward_msg(self, message_id: str) -> APIResponse:
+        """获取合并转发消息内容"""
         ...
 
     # ---- 事件注册 ----

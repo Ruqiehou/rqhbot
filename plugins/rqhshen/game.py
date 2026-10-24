@@ -420,13 +420,19 @@ def get_help_text() -> str:
 
 ✨ 修仙功能
 - 开灵 - 踏入仙途，开始修仙
-- 打坐 - 闭目修炼，增加修为
-- 突破 - 尝试突破境界
+- 打坐 - 闭目修炼，增加修为（有冷却）
+- 突破 - 尝试突破境界（消耗修为）
 - 修炼 - 查看修炼状态
+- 飞升 - 在 9/49/159/199/279 级尝试飞升
+
+⚔️ 对战功能
+- 挑战 <QQ号或道号> - 与道友切磋
+- 攻击 <QQ号或道号> - 攻击道友掠夺修为
 
 🏆 排行榜功能
 - 排行榜 - 查看修仙排行榜
 - 榜单 - 查看修仙榜单
+- 排行 - 查看修仙排行榜
 
 📊 统计功能
 - 统计 - 查看您的修仙统计
@@ -451,7 +457,7 @@ def build_player_stats_msg(player) -> str:
 
 
 def build_player_status_msg(player) -> str:
-    return (
+    msg = (
         f"✨ 修炼状态\n\n"
         f"👤 用户: {player.username}\n"
         f"境界: {player.current_realm_name}\n"
@@ -459,6 +465,10 @@ def build_player_status_msg(player) -> str:
         f"总突破: {player.total_breakthroughs} 次\n"
         f"总修为: {player.total_exp_gained}"
     )
+    notice = getattr(player, "recovery_notice", None)
+    if notice:
+        msg += f"\n\n⚠️ {notice}"
+    return msg
 
 
 class CultivationSystem:
@@ -468,6 +478,9 @@ class CultivationSystem:
             data_dir = os.path.join(script_dir, "data")
         self.data_dir = data_dir
         self.players = {}
+        # 存档已重建、但恢复提示尚未投递给玩家的 qq_id -> 提示文案
+        # 启动时 load_all_players 会先恢复一次，提示必须留到玩家真正查询时才出现
+        self._pending_recovery = {}
         self._ensure_data_dir_exists()
         self.load_all_players()
     
@@ -476,13 +489,21 @@ class CultivationSystem:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
     
-    def load_player(self, qq_id: int, username: str):
-        """加载或创建玩家数据"""
+    def load_player(self, qq_id: int, username: str, deliver_recovery: bool = True):
+        """加载或创建玩家数据
+
+        存档损坏时不再直接抛异常把玩家永久锁死，而是备份原文件、
+        重建一份新存档，并通过 recovery_notice 提示玩家一次。
+        """
         player_file = os.path.join(self.data_dir, f"player_{qq_id}.json")
-        
+
+        player = None
         if os.path.exists(player_file):
-            with open(player_file, 'r', encoding='utf-8') as f:
-                player_data = json.load(f)
+            try:
+                with open(player_file, 'r', encoding='utf-8') as f:
+                    player_data = json.load(f)
+                if not isinstance(player_data, dict):
+                    raise ValueError("玩家存档不是 JSON 对象")
                 player = Cultivator(
                     username=player_data.get('username', username),
                     qq_id=qq_id,
@@ -496,14 +517,42 @@ class CultivationSystem:
                     is_ascended=player_data.get('is_ascended', False),
                     ascension_count=player_data.get('ascension_count', 0)
                 )
-        else:
+            except (ValueError, OSError) as e:
+                player = self._recover_corrupt_player(player_file, qq_id, username, e)
+
+        if player is None:
             player = Cultivator(username, qq_id)
-        
+
+        # 恢复提示只投递一次：启动批量加载时先攒着，等玩家真正查询再提示
+        if deliver_recovery:
+            notice = self._pending_recovery.pop(qq_id, None)
+            if notice:
+                player.recovery_notice = notice
+
         self.players[qq_id] = player
         return player
-    
+
+    def _recover_corrupt_player(self, player_file: str, qq_id: int, username: str, error):
+        """备份损坏存档并重建玩家，返回带有一次性提示的新实例"""
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        backup_file = f"{player_file}.corrupt-{stamp}.bak"
+        try:
+            os.replace(player_file, backup_file)
+            logger.warning(f"玩家 {qq_id} 的存档已损坏（{error}），原文件备份为 {backup_file}")
+        except OSError as backup_error:
+            logger.error(f"备份损坏存档 {player_file} 失败: {backup_error}")
+            backup_file = None
+
+        player = Cultivator(username, qq_id)
+        player.recovery_notice = (
+            "检测到原存档文件损坏，已自动备份并重建新存档。"
+        )
+        self._pending_recovery[qq_id] = player.recovery_notice
+        self.save_player(player)
+        return player
+
     def save_player(self, player):
-        """保存玩家数据"""
+        """保存玩家数据（原子写入，避免中断时留下半截 JSON）"""
         player_file = os.path.join(self.data_dir, f"player_{player.qq_id}.json")
         player_data = {
             'username': player.username,
@@ -518,9 +567,21 @@ class CultivationSystem:
             'is_ascended': player.is_ascended,
             'ascension_count': player.ascension_count
         }
-        
-        with open(player_file, 'w', encoding='utf-8') as f:
-            json.dump(player_data, f, ensure_ascii=False, indent=2)
+
+        tmp_file = f"{player_file}.tmp"
+        try:
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(player_data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, player_file)
+        except BaseException:
+            try:
+                if os.path.exists(tmp_file):
+                    os.remove(tmp_file)
+            except OSError:
+                pass
+            raise
     
     def load_all_players(self):
         """加载所有玩家数据到内存缓存"""
@@ -531,7 +592,8 @@ class CultivationSystem:
             if filename.startswith("player_") and filename.endswith(".json"):
                 try:
                     qq_id = int(filename.replace("player_", "").replace(".json", ""))
-                    self.load_player(qq_id, f"User_{qq_id}")
+                    # 批量加载不投递恢复提示，留给玩家真正查询时提示一次
+                    self.load_player(qq_id, f"User_{qq_id}", deliver_recovery=False)
                 except ValueError:
                     continue
     
@@ -608,6 +670,8 @@ class Cultivator:
         self.is_soul_opened = is_soul_opened
         self.is_ascended = is_ascended
         self.ascension_count = ascension_count
+        # 存档损坏被重建时的一次性提示（由 load_player 设置）
+        self.recovery_notice = None
 
     @property
     def current_realm_name(self):
@@ -624,8 +688,25 @@ class Cultivator:
         return SUB_REALM_THRESHOLDS[self.realm_index]
 
     def can_meditate(self):
-        """检查是否可以打坐"""
-        return True
+        """检查是否已过打坐冷却"""
+        if not self.last_meditate:
+            return True
+        try:
+            last = datetime.fromisoformat(self.last_meditate)
+        except (TypeError, ValueError):
+            return True
+        return (datetime.now() - last).total_seconds() >= MEDITATION_COOLDOWN_SECONDS
+
+    def _meditation_gain_range(self):
+        """按 jingjie.json 的 experience_settings 计算打坐收益区间"""
+        base_min = _config_int("meditation_base_min", MEDITATION_BASE_MIN)
+        base_max = _config_int("meditation_base_max", MEDITATION_BASE_MAX)
+        rel_min = _config_float("meditation_relative_min_percent", MEDITATION_RELATIVE_MIN)
+        rel_max = _config_float("meditation_relative_max_percent", MEDITATION_RELATIVE_MAX)
+
+        min_gain = max(base_min, int(self.exp * rel_min))
+        max_gain = max(base_max, int(self.exp * rel_max))
+        return min_gain, max_gain
 
     def open_soul(self):
         """开灵功能 - 踏入仙途"""
@@ -650,20 +731,22 @@ class Cultivator:
             )
 
     def meditate(self):
-        """打坐功能"""
+        """打坐功能（受冷却限制，突破会消耗修为）"""
         if not self.is_soul_opened:
             return "道友尚未开灵，无法进行打坐修炼。请先使用开灵功能踏入仙途。"
-        
-        current_exp = self.exp
-        # 修复：使用对数曲线替代线性/指数曲线，防止老玩家一次获得大量修为
-        # 基准值 + log(当前修为+1) * 系数，平衡新手和老玩家
-        min_gain = max(10, int(10 + current_exp ** 0.5 * 2))
-        max_gain = max(30, int(30 + current_exp ** 0.7 * 5))
-        
+
+        if not self.can_meditate():
+            return (
+                f"🧘【{self.username}】刚结束一次打坐，需静心调息。\n"
+                f"冷却时间 {int(MEDITATION_COOLDOWN_SECONDS)} 秒，请稍后再来。"
+            )
+
+        min_gain, max_gain = self._meditation_gain_range()
         gain = random.randint(min_gain, max_gain)
         self.exp += gain
         self.total_exp_gained += gain
-        
+        self.last_meditate = datetime.now().isoformat(timespec="seconds")
+
         msg = f"【{self.username}】闭目打坐，感悟天地灵气...\n"
         msg += f"✨ 修为增加：+{gain} (当前境界 {min_gain}-{max_gain} 范围)\n"
 
@@ -671,11 +754,11 @@ class Cultivator:
         while self.realm_index < len(SUB_REALMS) - 1 and self.exp >= self.next_threshold:
             realm_stage = (self.realm_index // 9) + 1
             success_rate = max(0.6, 0.85 - (realm_stage * 0.005))
-            
+
             if random.random() > success_rate:
                 loss_amount = self.exp // 2
                 self.exp = max(0, self.exp - loss_amount)
-                
+
                 failure_messages = [
                     f"\n💥 突破失败！由于心境不稳，修为倒退！\n",
                     f"\n⚡ 突破受阻！天地灵气反噬，修为受损！\n",
@@ -687,10 +770,13 @@ class Cultivator:
                 msg += f"📊 当前修为：{self.exp} / {self.next_threshold if self.next_threshold != float('inf') else 'MAX'}\n"
                 break
             else:
+                # 突破必须消耗掉门槛修为，否则修为被重复使用可无限连跳
+                required = self.next_threshold
+                self.exp -= required
                 self.realm_index += 1
                 self.total_breakthroughs += 1
                 breakthrough_occurred = True
-                
+
                 current_realm = SUB_REALMS[self.realm_index]
                 msg += f"\n🎉 🎉 🎉 自动突破成功！ 🎉 🎉 🎉\n"
                 msg += f"恭喜道友晋升至：【{current_realm}】\n"
@@ -741,6 +827,9 @@ class Cultivator:
                 msg += f"\n当前修为：{self.exp}/{self.next_threshold if self.next_threshold != float('inf') else 'MAX'}"
                 return msg
 
+            # 突破必须消耗掉门槛修为，否则修为被重复使用可无限连跳
+            required = self.next_threshold
+            self.exp -= required
             self.realm_index += 1
             self.total_breakthroughs += 1
             breakthrough_count += 1

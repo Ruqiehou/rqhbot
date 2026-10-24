@@ -5,20 +5,36 @@ import json
 import logging
 import time
 import uuid
-from pathlib import Path
 from typing import (
-    Any, Awaitable, Callable, Dict, Final, List, Optional, Union, TypeAlias,
+    Any, Awaitable, Callable, Dict, Final, List, Optional, Union,
 )
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from sdk.config import BackendSpec, Config, get_backend, setup_logging
-from sdk.core.interfaces import IClient, IConnectionEventListener, MessageSegmentType
+from sdk.adapter import BackendSpec, get_backend
+from sdk.config import Config, config_manager, setup_logging
+from sdk.core.interfaces import (
+    APIResponse,
+    IClient,
+    IConnectionEventListener,
+    MessageSegmentType,
+)
 
 # 设置日志系统
 setup_logging()
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce(value: Any, cast: Callable[[Any], Any], default: Any) -> Any:
+    """把配置值安全转换为目标类型，缺失或非法时回退默认值"""
+    if value is None:
+        return default
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return default
+
 
 # ---- 类型别名 ----
 EventHandler = Callable[[Dict[str, Any]], Awaitable[None]]
@@ -195,6 +211,39 @@ class OneBotClient(IClient):
     PING_TIMEOUT: Final[float] = 10.0
     CLOSE_TIMEOUT: Final[float] = 5.0
 
+    # ---- API 调用超时 ----
+    DEFAULT_API_TIMEOUT: Final[float] = 30.0
+    # 部分 API 在群/好友数量大时响应较慢，单独放宽超时
+    ACTION_TIMEOUTS: Final[Dict[str, float]] = {
+        "get_group_list": 60.0,
+        "get_group_member_list": 60.0,
+        "get_friend_list": 60.0,
+        "get_group_msg_history": 60.0,
+        "get_friend_msg_history": 60.0,
+        "send_group_msg": 15.0,
+        "send_private_msg": 15.0,
+        "delete_msg": 15.0,
+    }
+
+    # 非幂等接口：重试可能造成重复发送/重复点赞，默认只尝试一次
+    NON_IDEMPOTENT_ACTIONS: Final[frozenset[str]] = frozenset({
+        "send_msg",
+        "send_group_msg",
+        "send_private_msg",
+        "send_group_forward_msg",
+        "send_private_forward_msg",
+        "send_like",
+        "send_group_notice",
+    })
+
+    # 仅传输层异常允许重试；业务失败（status != ok）重试通常无意义
+    RETRYABLE_EXCEPTIONS: Final[tuple[type[BaseException], ...]] = (
+        asyncio.TimeoutError,
+        ConnectionClosed,
+        ConnectionError,
+        OSError,
+    )
+
     def __init__(
         self,
         ws_url: Optional[str] = None,
@@ -222,7 +271,20 @@ class OneBotClient(IClient):
             "avg_latency": 0.0,
         }
 
-        # ---- 重连控制 ----
+        # ---- 重连控制（参数可在 config.yaml 的 settings.* 中调整）----
+        self.auto_reconnect: bool = bool(
+            config_manager.get("settings.auto_reconnect", True)
+        )
+        self.max_reconnect_attempts: int = _coerce(
+            config_manager.get("settings.max_reconnect_attempts"),
+            int,
+            self.MAX_RECONNECT_ATTEMPTS,
+        )
+        self.reconnect_delay: float = _coerce(
+            config_manager.get("settings.reconnect_interval"),
+            float,
+            self.RECONNECT_DELAY,
+        )
         self._reconnect_attempts: int = 0
         self._reconnect_task: Optional[asyncio.Task[None]] = None
         self._closing: bool = False  # 主动关闭后不再自动重连
@@ -232,6 +294,10 @@ class OneBotClient(IClient):
 
         # ---- echo_map 保护（最多 1000 条，防止内存泄漏）----
         self._echo_maxsize: int = 1000
+
+        # ---- 处理器并发控制 ----
+        self._handler_semaphore: asyncio.Semaphore = asyncio.Semaphore(64)
+        self._session_locks: Dict[str, asyncio.Lock] = {}
 
     @property
     def connected(self) -> bool:
@@ -281,6 +347,9 @@ class OneBotClient(IClient):
         """监听循环结束后安排自动重连（保证同一时间只有一个重连任务）"""
         if self._closing:
             return
+        if not self.auto_reconnect:
+            logger.info("自动重连已禁用（settings.auto_reconnect=false），不再重连")
+            return
         if self._reconnect_task is not None and not self._reconnect_task.done():
             return
         try:
@@ -306,7 +375,7 @@ class OneBotClient(IClient):
         达到最大轮数仍失败则结束，使 run_frontend 得以正常退出。
         """
         for round_index in range(1, self.RECONNECT_MAX_ROUNDS + 1):
-            delay = min(self.RECONNECT_DELAY * round_index, 30.0)
+            delay = min(self.reconnect_delay * round_index, 30.0)
             logger.info(
                 f"连接已断开，{delay:.0f} 秒后进行第 {round_index}/{self.RECONNECT_MAX_ROUNDS} 轮重连..."
             )
@@ -336,7 +405,7 @@ class OneBotClient(IClient):
         await self._cancel_connection_tasks()
 
         retries = 0
-        max_retries = max_retries or self.MAX_RECONNECT_ATTEMPTS
+        max_retries = max_retries or self.max_reconnect_attempts
         
         while retries < max_retries:
             try:
@@ -399,7 +468,7 @@ class OneBotClient(IClient):
                 logger.error(f"连接失败 ({retries}/{max_retries}): {e}")
                 
                 if retries < max_retries:
-                    wait_time = self.RECONNECT_DELAY * retries
+                    wait_time = self.reconnect_delay * retries
                     logger.info(f"{wait_time}秒后重试...")
                     await asyncio.sleep(wait_time)
         
@@ -620,10 +689,32 @@ class OneBotClient(IClient):
                     continue
                 seen.add(handler_id)
                 try:
-                    task = asyncio.create_task(handler(data))
+                    task = asyncio.create_task(self._run_handler(handler, data))
                     task.add_done_callback(self._on_handler_task_done)
                 except Exception as e:
                     logger.error(f"创建处理器任务失败: {e}", exc_info=True)
+
+    @staticmethod
+    def _session_key(data: Dict[str, Any]) -> str:
+        """提取会话标识，用于保证同一会话内的处理器串行执行"""
+        group_id = data.get("group_id")
+        if group_id is not None:
+            return f"group:{group_id}"
+        user_id = data.get("user_id")
+        if user_id is not None:
+            return f"private:{user_id}"
+        return "global"
+
+    async def _run_handler(
+        self, handler: EventHandler, data: Dict[str, Any]
+    ) -> None:
+        """在并发上限内执行处理器，并保证同一会话内顺序执行"""
+        async with self._handler_semaphore:
+            lock = self._session_locks.setdefault(
+                self._session_key(data), asyncio.Lock()
+            )
+            async with lock:
+                await handler(data)
 
     @staticmethod
     def _on_handler_task_done(task: asyncio.Task[Any]) -> None:
@@ -646,6 +737,17 @@ class OneBotClient(IClient):
                 f"echo_map 已达上限 {self._echo_maxsize}，已淘汰最旧条目: {oldest_key!r}"
             )
 
+    def _resolve_timeout(self, action: str, override: Optional[float] = None) -> float:
+        """解析单次 API 调用的超时（秒）
+
+        优先级：显式 override > config.yaml 的 settings.api_timeout.<action>
+        > 内置 ACTION_TIMEOUTS 表 > DEFAULT_API_TIMEOUT。
+        """
+        if override is not None:
+            return override
+        fallback: float = self.ACTION_TIMEOUTS.get(action, self.DEFAULT_API_TIMEOUT)
+        return config_manager.get_api_timeout(action, fallback)
+
     def on_message(self, message_type: str) -> Decorator:
         """装饰器：注册消息事件处理器
 
@@ -665,15 +767,18 @@ class OneBotClient(IClient):
         return decorator
 
     async def call(self, action: str, params: Optional[Dict[str, Any]] = None,
-                   max_retries: int = 3, retry_delay: float = 1.0) -> Dict[str, Any]:
+                   max_retries: Optional[int] = None, retry_delay: float = 1.0,
+                   timeout: Optional[float] = None) -> APIResponse:
         """
-        调用API（支持重试）
+        调用API
 
         Args:
             action: API动作名称
             params: 参数字典
-            max_retries: 最大重试次数
+            max_retries: 最大尝试次数（含首次），缺省时幂等接口 3 次、
+                非幂等接口（发送消息/点赞等）1 次
             retry_delay: 重试延迟（秒）
+            timeout: 单次调用超时（秒），缺省按 action 查表，回落 DEFAULT_API_TIMEOUT
 
         Returns:
             API响应数据
@@ -681,63 +786,74 @@ class OneBotClient(IClient):
         Raises:
             ConnectionError: 未连接
             TimeoutError: API调用超时
-            Exception: 其他错误
+            RuntimeError: 服务端返回业务错误（不重试）
         """
         if not self.connected or not self.ws:
             raise ConnectionError(f"未连接到{self.backend.display_name}服务器")
 
-        last_error = None
-        pending_futures: List[asyncio.Future[Any]] = []
+        if max_retries is None:
+            max_retries = (
+                1 if action in self.NON_IDEMPOTENT_ACTIONS else 3
+            )
+        attempts: int = max(1, max_retries)
+        call_timeout: float = self._resolve_timeout(action, timeout)
 
-        try:
-            for attempt in range(max_retries):
-                echo_id = f"rqhbot-{uuid.uuid4().hex}"
-                message = {
-                    "action": action,
-                    "params": params or {},
-                    "echo": echo_id
-                }
+        last_error: Optional[BaseException] = None
 
-                future = asyncio.Future()
-                pending_futures.append(future)
+        for attempt in range(attempts):
+            echo_id = f"rqhbot-{uuid.uuid4().hex}"
+            message = {
+                "action": action,
+                "params": params or {},
+                "echo": echo_id
+            }
 
-                # 插入前淘汰最旧的，防止 echo_map 无限增长
-                if len(self.echo_map) >= self._echo_maxsize:
-                    self._evict_oldest_echo()
+            future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
 
-                self.echo_map[echo_id] = future
+            # 插入前淘汰最旧的，防止 echo_map 无限增长
+            if len(self.echo_map) >= self._echo_maxsize:
+                self._evict_oldest_echo()
 
-                try:
-                    await self.ws.send(json.dumps(message))
-                    result = await asyncio.wait_for(future, timeout=30)
+            self.echo_map[echo_id] = future
 
-                    if result.get("status") == "ok":
-                        return result.get("data", {})
-                    else:
-                        last_error = Exception(f"API调用失败: {result.get('msg', '未知错误')}")
+            try:
+                await self.ws.send(json.dumps(message))
+                result = await asyncio.wait_for(future, timeout=call_timeout)
 
-                except asyncio.TimeoutError:
-                    last_error = TimeoutError(f"API调用超时 (尝试 {attempt + 1}/{max_retries})")
-                except Exception as e:
+                if result.get("status") == "ok":
+                    return result.get("data", {})
+                # 业务错误重试无意义，直接抛出
+                raise RuntimeError(f"API调用失败: {result.get('msg', '未知错误')}")
+
+            except RuntimeError:
+                raise
+            except self.RETRYABLE_EXCEPTIONS as e:
+                if isinstance(e, asyncio.TimeoutError):
+                    last_error = TimeoutError(
+                        f"API调用超时 (尝试 {attempt + 1}/{attempts})"
+                    )
+                else:
                     last_error = e
-                finally:
-                    self.echo_map.pop(echo_id, None)
+            finally:
+                self.echo_map.pop(echo_id, None)
 
-                # 如果不是最后一次尝试，等待后重试
-                if attempt < max_retries - 1:
-                    logger.warning(f"API调用失败，{retry_delay}秒后重试 ({attempt + 1}/{max_retries}): {last_error}")
-                    await asyncio.sleep(retry_delay)
+            # 如果不是最后一次尝试，等待后重试
+            if attempt < attempts - 1:
+                if not self.connected or not self.ws:
+                    raise ConnectionError(
+                        f"重试前连接已断开，放弃调用 {action}"
+                    )
+                logger.warning(
+                    f"API调用失败，{retry_delay}秒后重试 "
+                    f"({attempt + 1}/{attempts}): {last_error}"
+                )
+                await asyncio.sleep(retry_delay)
 
-            # 所有重试都失败
-            if last_error:
-                raise last_error
-            raise Exception(f"API调用失败: 未知错误 (action={action})")
-        finally:
-            # 清理所有未完成的 futures，防止内存泄漏
-            for future in pending_futures:
-                if not future.done():
-                    future.cancel()
-    
+        # 所有重试都失败
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"API调用失败: 未知错误 (action={action})")
+
 
 
     async def send_private_message(
@@ -880,6 +996,54 @@ class OneBotClient(IClient):
             "user_id": user_id,
             "message": msg_segments,
         })
+
+    # ======================== post_ 风格别名（简洁调用） ========================
+    async def post_group_message(
+        self,
+        group_id: int,
+        message: str = "",
+        image_path: Optional[str] = None,
+        at_user_id: Optional[int] = None,
+        reply_message_id: Optional[int] = None,
+    ) -> APIResponse:
+        """发送群聊消息（send_group_message 别名）"""
+        return await self.send_group_message(
+            group_id, message, image_path, at_user_id, reply_message_id
+        )
+
+    async def post_private_message(
+        self,
+        user_id: int,
+        message: str = "",
+        image_path: Optional[str] = None,
+        reply_message_id: Optional[int] = None,
+    ) -> APIResponse:
+        """发送私聊消息（send_private_message 别名）"""
+        return await self.send_private_message(
+            user_id, message, image_path, reply_message_id
+        )
+
+    async def post_group_message_segments(
+        self,
+        group_id: int,
+        segments: List[MessageSegmentType],
+        reply_message_id: Optional[int] = None,
+    ) -> APIResponse:
+        """发送群聊消息（消息段，send_group_message_segments 别名）"""
+        return await self.send_group_message_segments(
+            group_id, segments, reply_message_id
+        )
+
+    async def post_private_message_segments(
+        self,
+        user_id: int,
+        segments: List[MessageSegmentType],
+        reply_message_id: Optional[int] = None,
+    ) -> APIResponse:
+        """发送私聊消息（消息段，send_private_message_segments 别名）"""
+        return await self.send_private_message_segments(
+            user_id, segments, reply_message_id
+        )
 
     async def send_event_message(
         self,
@@ -1206,6 +1370,244 @@ class OneBotClient(IClient):
         """
         return await self.call("get_stranger_info", {
             "user_id": user_id
+        })
+
+    # ======================== 群管（扩展） ========================
+
+    async def get_group_info(self, group_id: int, no_cache: bool = False) -> Dict[str, Any]:
+        """获取群信息
+
+        Args:
+            group_id: 群号
+            no_cache: 是否不使用缓存
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("get_group_info", {
+            "group_id": group_id,
+            "no_cache": no_cache,
+        })
+
+    async def set_group_whole_ban(self, group_id: int, enable: bool = True) -> Dict[str, Any]:
+        """设置群全员禁言
+
+        Args:
+            group_id: 群号
+            enable: 是否开启
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_group_whole_ban", {
+            "group_id": group_id,
+            "enable": enable,
+        })
+
+    async def set_group_admin(self, group_id: int, user_id: int, enable: bool = True) -> Dict[str, Any]:
+        """设置群管理员
+
+        Args:
+            group_id: 群号
+            user_id: 用户ID
+            enable: 是否设为管理员
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_group_admin", {
+            "group_id": group_id,
+            "user_id": user_id,
+            "enable": enable,
+        })
+
+    async def set_group_name(self, group_id: int, group_name: str) -> Dict[str, Any]:
+        """设置群名
+
+        Args:
+            group_id: 群号
+            group_name: 新群名
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_group_name", {
+            "group_id": group_id,
+            "group_name": group_name,
+        })
+
+    async def set_group_leave(self, group_id: int, is_dismiss: bool = False) -> Dict[str, Any]:
+        """退出群聊
+
+        Args:
+            group_id: 群号
+            is_dismiss: 是否解散（仅群主有效）
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_group_leave", {
+            "group_id": group_id,
+            "is_dismiss": is_dismiss,
+        })
+
+    async def set_group_special_title(self, group_id: int, user_id: int, special_title: str = "") -> Dict[str, Any]:
+        """设置群专属头衔
+
+        Args:
+            group_id: 群号
+            user_id: 用户ID
+            special_title: 头衔（空串移除）
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_group_special_title", {
+            "group_id": group_id,
+            "user_id": user_id,
+            "special_title": special_title,
+        })
+
+    async def get_group_honor_info(self, group_id: int, type_: str) -> Dict[str, Any]:
+        """获取群荣誉信息
+
+        Args:
+            group_id: 群号
+            type_: 类型（talk / performer / legend / strong_newbie / emotion / all）
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("get_group_honor_info", {
+            "group_id": group_id,
+            "type": type_,
+        })
+
+    async def get_group_at_all_remain(self, group_id: int) -> Dict[str, Any]:
+        """获取群 @全体成员 剩余次数
+
+        Args:
+            group_id: 群号
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("get_group_at_all_remain", {
+            "group_id": group_id,
+        })
+
+    async def send_group_notice(self, group_id: int, content: str, image: str = "") -> Dict[str, Any]:
+        """发送群公告（扩展 API）
+
+        Args:
+            group_id: 群号
+            content: 公告内容
+            image: 公告图片路径（可选）
+
+        Returns:
+            API响应数据
+        """
+        params: Dict[str, Any] = {
+            "group_id": group_id,
+            "content": content,
+        }
+        if image:
+            params["image"] = image
+        return await self.call("send_group_notice", params)
+
+    async def set_essence_msg(self, message_id: int) -> Dict[str, Any]:
+        """设置精华消息（扩展 API）
+
+        Args:
+            message_id: 消息ID
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("set_essence_msg", {
+            "message_id": message_id,
+        })
+
+    # ======================== 状态查询 ========================
+
+    async def get_status(self) -> Dict[str, Any]:
+        """获取运行状态
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("get_status")
+
+    async def can_send_image(self) -> bool:
+        """检测是否可以发送图片
+
+        Returns:
+            是否可以发送图片
+        """
+        result = await self.call("can_send_image")
+        return bool(result.get("yes", False))
+
+    async def can_send_record(self) -> bool:
+        """检测是否可以发送语音
+
+        Returns:
+            是否可以发送语音
+        """
+        result = await self.call("can_send_record")
+        return bool(result.get("yes", False))
+
+    async def get_image(self, file: str) -> Dict[str, Any]:
+        """获取图片信息
+
+        Args:
+            file: 图片文件名（收到消息中的 image 段 file 字段）
+
+        Returns:
+            API响应数据（含 file 本地路径、size、filename、url）
+        """
+        return await self.call("get_image", {
+            "file": file,
+        })
+
+    async def get_record(self, file: str, out_format: str = "mp3") -> Dict[str, Any]:
+        """获取语音信息
+
+        Args:
+            file: 语音文件名（收到消息中的 record 段 file 字段）
+            out_format: 输出格式（mp3/amr/wma/m4a/spx/ogg/wav/flac）
+
+        Returns:
+            API响应数据（含 file 本地路径）
+        """
+        return await self.call("get_record", {
+            "file": file,
+            "out_format": out_format,
+        })
+
+    async def get_forward_msg(self, message_id: str) -> Dict[str, Any]:
+        """获取合并转发消息内容
+
+        Args:
+            message_id: 转发消息 ID（forward 段的 id 字段）
+
+        Returns:
+            API响应数据（含 messages 节点列表）
+        """
+        return await self.call("get_forward_msg", {
+            "message_id": message_id,
+        })
+
+    async def get_credentials(self, domain: str = "") -> Dict[str, Any]:
+        """获取登录凭证（Cookies 与 CSRF Token）
+
+        Args:
+            domain: 需要获取 cookies 的域名（空串为全部）
+
+        Returns:
+            API响应数据
+        """
+        return await self.call("get_credentials", {
+            "domain": domain,
         })
 
     # ======================== 请求处理 ========================

@@ -9,6 +9,7 @@
   - [娱乐功能](#娱乐功能)
   - [消息历史](#消息历史)
   - [群组管理](#群组管理)
+  - [状态查询](#状态查询)
   - [好友管理](#好友管理)
   - [请求处理](#请求处理)
   - [通用 API](#通用-api-call)
@@ -193,11 +194,34 @@ history = await self.api.get_private_message_history(789012, message_seq=0, coun
 
 ```python
 await self.api.get_group_list()
+await self.api.get_group_info(123456)                          # 群信息
 await self.api.get_group_member_list(123456)
 await self.api.get_group_member_info(123456, 789012)
-await self.api.set_group_ban(123456, 789012, duration=1800)   # 禁言
+await self.api.set_group_ban(123456, 789012, duration=1800)    # 禁言
+await self.api.set_group_whole_ban(123456, enable=True)        # 全员禁言
 await self.api.set_group_kick(123456, 789012)                  # 踢出
 await self.api.set_group_card(123456, 789012, "新名片")        # 设置名片
+await self.api.set_group_admin(123456, 789012, enable=True)    # 设置管理员
+await self.api.set_group_name(123456, "新群名")                # 设置群名
+await self.api.set_group_special_title(123456, 789012, "头衔") # 专属头衔
+await self.api.set_group_leave(123456)                         # 退群
+await self.api.get_group_honor_info(123456, "talk")            # 群荣誉
+await self.api.get_group_at_all_remain(123456)                 # @全体剩余次数
+await self.api.send_group_notice(123456, "公告内容")           # 群公告
+await self.api.set_essence_msg(message_id)                     # 设精华
+```
+
+### 状态查询
+
+```python
+await self.api.get_status()                 # 运行状态
+await self.api.can_send_image()             # -> bool
+await self.api.can_send_record()            # -> bool
+await self.api.get_image(file)              # 图片信息（本地路径/大小/URL）
+await self.api.get_record(file, "mp3")      # 语音信息（可转格式）
+await self.api.get_forward_msg(message_id)  # 合并转发内容
+await self.api.get_credentials(domain="")   # 登录凭证
+await self.api.get_version_info()
 ```
 
 ### 好友管理
@@ -219,10 +243,25 @@ await self.api.set_group_add_request(flag="xxx", sub_type="add", approve=False, 
 ### 通用 API: call
 
 ```python
-async def call(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
+async def call(
+    action: str,
+    params: Optional[Dict[str, Any]] = None,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+    timeout: Optional[float] = None,
+) -> Dict[str, Any]
 ```
 
 用于调用任意未封装的一通 API。
+
+**参数：**
+- `action`: API 动作名称
+- `params`: 参数字典
+- `max_retries`: 最大重试次数，默认 3
+- `retry_delay`: 重试间隔（秒），默认 1.0
+- `timeout`: 单次调用超时（秒），默认按 action 解析
+
+**超时优先级：** 显式 `timeout` > `config.yaml` 的 `settings.api_timeout.<action>` > 内置表（`get_group_list` / `get_group_member_list` 等重型接口 60s，`send_group_msg` 等 15s） > 内置默认 30s。
 
 **示例：**
 ```python
@@ -231,6 +270,8 @@ friends = await self.api.call("get_friend_list")
 result = await self.api.call("set_group_ban", {
     "group_id": 123456, "user_id": 789012, "duration": 600
 })
+# 单次覆盖超时
+result = await self.api.call("get_group_msg_history", {"group_id": 123456}, timeout=90)
 ```
 
 ---
@@ -354,7 +395,7 @@ segments = [
 
 ## Message 对象
 
-当 NapCat 上报数组格式消息时，SDK 会解析为 `Message` 对象：
+当 OneBot 后端上报数组格式消息时，SDK 会解析为 `Message` 对象：
 
 | 字段 | 说明 |
 |------|------|
@@ -470,11 +511,21 @@ class PrivateMessageEvent:
 | `FriendRequestEvent` | 好友申请 |
 | `GroupRequestEvent` | 群邀请/加群申请（含 `group_id`/`sub_type`） |
 
+### MetaEvent 子类
+
+| 事件类 | 说明 |
+|--------|------|
+| `MetaEvent` | 元事件基类 |
+| `HeartbeatEvent` | 心跳（含 `status`/`interval`） |
+| `LifecycleEvent` | 生命周期（`sub_type`: connect/enable/disable） |
+
+插件可通过 `@bot.on_meta_event()` 装饰器或 `event_bus.subscribe(MetaEvent, ...)` 监听心跳与连接事件。
+
 ---
 
 ## IClient 接口（Protocol）
 
-插件通过此接口约束，确保与 `NapCatClient` 解耦。支持发送消息、群组管理、好友管理、API 调用等所有能力。
+插件通过此接口约束，确保与 `OneBotClient` 解耦。支持发送消息、群组管理、好友管理、API 调用等所有能力。
 
 ```python
 from sdk.core.interfaces import IClient

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -24,33 +25,50 @@ def test_iso_week_keys(monkeypatch, day, key):
             return cls.fromisoformat(day)
 
     monkeypatch.setattr(speech, "datetime", Clock)
-    assert speech.get_weekly_file().endswith(f"weekly_{key}.json")
+    # 周键必须按 ISO 周计算：跨年周要归入正确的 ISO 年
+    assert speech._week_key_of(day) == key
     assert speech.check_and_handle_week_transition({})[1] == key
 
 
-async def test_speech_awaits_update(monkeypatch):
+async def test_speech_persists_message_update(monkeypatch, tmp_path):
+    """群消息必须落盘，不能只更新内存"""
+    users_dir = tmp_path / "users"
+    users_dir.mkdir()
+    monkeypatch.setattr(speech.SpeechConfig, "USERS_DIR", str(users_dir))
+
     plugin = speech_main.RqhSpeechPlugin()
-    update = AsyncMock(return_value=True)
-    monkeypatch.setattr(speech_main, "user_exists", lambda uid: True)
-    monkeypatch.setattr(speech_main.user_manager, "update_user_message", update)
-    monkeypatch.setattr(plugin, "_load_and_log", lambda *args: None)
-    monkeypatch.setattr(plugin, "_route_command", AsyncMock())
-    event = SimpleNamespace(message=SimpleNamespace(plain_text="hello"), group_id=1, user_id=2, user_name="user")
-    await plugin.rqhbase_group(event)
-    update.assert_awaited_once_with("2", "1")
+    event = SimpleNamespace(
+        message=SimpleNamespace(plain_text="hello"),
+        group_id=1,
+        user_id=2,
+        user_name="user",
+    )
+
+    await plugin.handle_message(event)
+
+    data = speech.load_user_data("2")
+    assert data is not None
+    assert data["summary"]["total_messages"] == 1
     await plugin.on_unload()
 
 
-def test_log_rotation(monkeypatch, tmp_path):
+def test_log_manager_writes_dated_file(monkeypatch, tmp_path):
+    """日志按配置的文件名写入（年度子目录），换名后新建实例写新文件"""
     monkeypatch.setattr(speech.SpeechConfig, "LOGS_DIR", str(tmp_path))
     monkeypatch.setattr(speech.SpeechConfig, "ENABLE_LOGGING", True)
     monkeypatch.setattr(speech.SpeechConfig, "get_log_filename", lambda: "first.log")
+
     manager = speech.LogManager()
     manager.log_message("1", "user", "2", 1, 1)
+
+    written = list(tmp_path.rglob("*.log"))
+    assert len(written) == 1
+    assert written[0].name == "first.log"
+    assert "用户 user(1)" in written[0].read_text(encoding="utf-8")
+
     monkeypatch.setattr(speech.SpeechConfig, "get_log_filename", lambda: "second.log")
-    manager.log_message("1", "user", "2", 2, 2)
-    assert (tmp_path / "first.log").exists()
-    assert (tmp_path / "second.log").exists()
+    speech.LogManager().log_message("1", "user", "2", 2, 2)
+    assert (written[0].parent / "second.log").exists()
 
 
 async def test_inherited_filters_and_override():
@@ -209,24 +227,30 @@ async def test_group_summary_write_survives_cancellation(tmp_path, monkeypatch):
     await plugin.on_unload()
 
 
-async def test_speech_persists_concurrent_messages(monkeypatch, tmp_path):
-    for name in ("USERS_DIR", "DAILY_DATA_DIR", "WEEKLY_DATA_DIR"):
-        directory = tmp_path / name
-        directory.mkdir()
-        monkeypatch.setattr(speech.SpeechConfig, name, str(directory))
-    for name in ("LEGACY_USERS_DIR", "LEGACY_DAILY_DATA_DIR", "LEGACY_WEEKLY_DATA_DIR"):
-        monkeypatch.setattr(speech.SpeechConfig, name, str(tmp_path / "absent"))
+def test_speech_persists_concurrent_messages(monkeypatch, tmp_path):
+    """并发更新同一用户时不能丢计数"""
+    users_dir = tmp_path / "users"
+    users_dir.mkdir()
+    monkeypatch.setattr(speech.SpeechConfig, "USERS_DIR", str(users_dir))
+
     manager = speech.UserDataManager()
     for uid in ("1", "2"):
-        assert speech.save_user_data(uid, manager.create_user(uid, uid))
-    results = await asyncio.gather(*(manager.update_user_message(str(i % 2 + 1), "3") for i in range(10)))
+        manager.create_user(uid, uid)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(
+            pool.map(
+                lambda i: manager.update_user_message(str(i % 2 + 1), "3"),
+                range(10),
+            )
+        )
     assert all(results)
-    daily = speech.load_daily_data()
-    weekly = speech.load_weekly_data()
+
+    week_key = speech._week_key_of(datetime.now().strftime("%Y-%m-%d"))
     for uid in ("1", "2"):
-        assert daily["users"][uid]["groups"]["3"] == 5
-        assert weekly["users"][uid]["groups"]["3"]["total"] == 5
-        assert speech.load_user_data(uid)["summary"]["total_messages"] == 5
+        data = speech.load_user_data(uid)
+        assert data["summary"]["total_messages"] == 5
+        assert data["weekly_records"]["3"][week_key] == 5
 
 
 def test_invalid_iso_week_rejected(monkeypatch):

@@ -19,11 +19,15 @@ sdk/
 │   └── interfaces.py       # 接口定义（IClient 等）
 ├── pluginsystem/            # 插件系统模块
 │   ├── __init__.py          # 插件系统导出
-│   ├── plugin_base.py      # PluginBase / PluginManager / filter_registry
+│   ├── plugin_base.py      # PluginBase / filter_registry
 │   └── plugin_manager.py   # HotReloadPluginManager 热重载管理器
+├── adapter/                 # 适配器模块
+│   ├── __init__.py          # 适配器模块导出
+│   ├── backends.py          # OneBot 后端注册表（NapCat / SnowLuma）
+│   └── resolver.py          # 连接参数解析（ws 地址/令牌/多实例）
 └── config/                  # 配置模块
     ├── __init__.py          # 配置模块导出
-    ├── backends.py          # OneBot 后端注册表（NapCat / SnowLuma）
+    ├── backends.py          # 兼容垫片（转发到 sdk.adapter）
     └── config.py           # 配置管理和日志设置
 ```
 
@@ -33,26 +37,33 @@ sdk/
 
 提供机器人核心功能：
 
-- **OneBotClient**: WebSocket 客户端（别名 `NapCatClient`），负责与选定的 OneBot 后端（NapCat / SnowLuma）建立连接、收发消息并封装常用 OneBot API 调用
+- **OneBotClient**: WebSocket 客户端（别名 `NapCatClient`），负责与选定的 OneBot 后端（NapCat / SnowLuma）建立连接、收发消息并封装常用 OneBot API 调用；`call()` 支持按 action 配置超时（见 `settings.api_timeout`）
 - **MessageSegment**: 消息段构建器，用于构造数组格式的图文混排消息
-- **Event classes**: 强类型事件，包括 GroupMessageEvent、PrivateMessageEvent 等（含 Message 对象）
-- **EventBus**: 事件总线，实现模块间的解耦通信
+- **Event classes**: 强类型事件，包括 GroupMessageEvent、PrivateMessageEvent 等（含 Message 对象；`Message.from_raw()` 内置 LRU 解析缓存）
+- **EventBus**: 事件总线，实现模块间的解耦通信；构造函数 `max_concurrency` 限制同时在跑的处理器数量（默认 64，0 表示不限制）
 - **Interfaces**: 接口定义，包括 `IClient`、`IConnectionEventListener`
 
 ### 插件系统模块 (sdk.pluginsystem)
 
 提供插件开发功能：
 
-- **PluginBase**: 插件基类，所有插件必须继承此类
-- **PluginManager**: 插件管理器，负责插件的加载、卸载和管理
+- **PluginBase**: 插件基类，所有插件必须继承此类；`load_config()` 带 TTL 缓存，`reload_config()` 可强制刷新并立即重读磁盘配置
+- **HotReloadPluginManager**: 插件管理器，负责插件的加载、热重载、卸载和管理
 - **filter_registry**: 过滤器注册表实例，用于消息过滤和路由（`group_server` / `private_server` / `message_filter`）
+
+### 适配器模块 (sdk.adapter)
+
+封装 OneBot 11 实现端的注册表与连接参数解析，与配置存储解耦：
+
+- **BACKENDS / get_backend**: OneBot 后端注册表（`BackendSpec` / `DEFAULT_BACKEND`），新增后端只需注册一项
+- **AdapterResolver**: 按顶层 `adapter` 字段解析 ws 地址/令牌，支持多实例（如 SnowLuma）的读取、切换与 CLI 选择（`select_instance()`）
 
 ### 配置模块 (sdk.config)
 
 提供配置和日志功能：
 
 - **Config**: 配置管理类，支持 YAML 配置文件和环境变量
-- **get_backend**: OneBot 后端注册表查询（`BackendSpec` / `BACKENDS` / `DEFAULT_BACKEND`）
+- **ConfigManager.adapter**: 适配器解析器入口（委托给 `sdk.adapter.AdapterResolver`）
 - **setup_logging**: 日志设置函数，支持按日期分隔的日志文件
 
 ## 🚀 使用方法
@@ -72,10 +83,10 @@ from sdk import BotClient, GroupMessageEvent
 
 ```python
 # 方式一：从子模块导入
-from sdk.pluginsystem import PluginBase, PluginManager
+from sdk.pluginsystem import HotReloadPluginManager, PluginBase
 
 # 方式二：从主模块导入（推荐）
-from sdk import PluginBase, PluginManager
+from sdk import HotReloadPluginManager, PluginBase
 ```
 
 ### 导入配置
@@ -94,7 +105,7 @@ from sdk import Config, setup_logging
 from sdk import (
     BotClient,           # 机器人客户端
     PluginBase,          # 插件基类
-    PluginManager,       # 插件管理器
+    HotReloadPluginManager,  # 插件管理器
     EventBus,            # 事件总线
     GroupMessageEvent,   # 群消息事件
     PrivateMessageEvent, # 私聊消息事件
@@ -103,7 +114,7 @@ from sdk import (
     filter_registry,     # 过滤器注册表
 )
 
-# MessageSegment 由 sdk.core 导出
+# MessageSegment 由 sdk 与 sdk.core 导出
 from sdk.core import MessageSegment
 ```
 
@@ -180,6 +191,6 @@ class HelloPlugin(PluginBase):
 ## 📋 版本信息
 
 - **当前版本**: 3.8.0
-- **最后更新**: 2026-05-16
+- **最后更新**: 2026-10-14
 - **Python 要求**: >= 3.10
 - **依赖库**: websockets, aiohttp, PyYAML, python-dotenv, requests, packaging

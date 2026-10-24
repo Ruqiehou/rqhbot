@@ -8,14 +8,13 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Final, Optional, TypeAlias
+from typing import Any, Dict, Optional, TypeAlias
 
 import yaml
 from dotenv import load_dotenv
 
-from .backends import DEFAULT_BACKEND, get_backend
+from sdk.adapter import AdapterResolver
 
 # 日志器
 logger = logging.getLogger(__name__)
@@ -212,9 +211,14 @@ class ConfigManager:
 
     # ==================== 适配器后端配置 ====================
 
+    @property
+    def adapter(self) -> AdapterResolver:
+        """适配器解析器（按顶层 ``adapter`` 字段解析连接参数）"""
+        return AdapterResolver(self)
+
     def get_backend_name(self) -> str:
         """获取当前适配器后端名称（顶层 ``adapter`` 字段，缺省为默认后端）"""
-        return get_backend(self.get("adapter") or DEFAULT_BACKEND).name
+        return self.adapter.name
 
     def set_backend(self, name: str) -> None:
         """设置适配器后端（写入顶层 ``adapter`` 字段并保存）
@@ -225,18 +229,83 @@ class ConfigManager:
         Raises:
             ValueError: 名称不在已注册后端中。
         """
-        self.set("adapter", get_backend(name).name)
+        self.adapter.set_backend(name)
         self._save_config()
 
     def get_ws_uri(self) -> str:
-        """按当前后端读取 WebSocket 地址，缺省回落到该后端默认值"""
-        backend = get_backend(self.get_backend_name())
-        return self.get(f"{backend.config_section}.ws_url") or backend.default_ws_uri
+        """按当前后端读取 WebSocket 地址，缺省回落到该后端默认值
+
+        对于支持多实例配置的后端（如 snowluma），从 active 索引读取当前实例。
+        """
+        return self.adapter.ws_uri()
 
     def get_ws_token(self) -> str:
-        """按当前后端读取访问令牌，缺省为空串"""
-        backend = get_backend(self.get_backend_name())
-        return self.get(f"{backend.config_section}.access_token", "") or ""
+        """按当前后端读取访问令牌，缺省为空串
+
+        对于支持多实例配置的后端（如 snowluma），从 active 索引读取当前实例。
+        """
+        return self.adapter.ws_token()
+
+    def get_snowluma_instances(self) -> list[dict]:
+        """获取所有 SnowLuma 实例配置列表"""
+        return self.adapter.instances()
+
+    def get_active_snowluma_index(self) -> int:
+        """获取当前激活的 SnowLuma 实例索引"""
+        return self.adapter.active_index()
+
+    def set_active_snowluma(self, index: int) -> None:
+        """设置当前激活的 SnowLuma 实例索引并保存"""
+        self.adapter.set_active(index)
+        self._save_config()
+
+    # ==================== API 超时配置 ====================
+
+    @staticmethod
+    def _coerce_timeout(raw: Any) -> Optional[float]:
+        """把配置值转为正数超时秒数，非法值返回 None
+
+        支持 int/float 及数字字符串；非正数或无法转换的值会记警告并忽略。
+        """
+        if raw is None:
+            return None
+        try:
+            value: float = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("[配置] API 超时值 %r 不是数字，已忽略", raw)
+            return None
+        if value <= 0:
+            logger.warning("[配置] API 超时值 %r 非正数，已忽略", raw)
+            return None
+        return value
+
+    def get_api_timeout(self, action: str, default: float = 30.0) -> float:
+        """按 API action 读取调用超时（秒）
+
+        配置结构::
+
+            settings:
+              api_timeout:
+                default: 30          # 全局缺省超时
+                get_group_list: 60   # 按 action 覆盖
+
+        取值优先级：``settings.api_timeout.<action>`` > ``settings.api_timeout.default``
+        > ``default`` 参数。
+
+        Args:
+            action: API 动作名称，如 'get_group_list'
+            default: 未配置时的缺省秒数
+
+        Returns:
+            超时秒数
+        """
+        base: Any = self.get("settings.api_timeout", {})
+        raw: Any = None
+        if isinstance(base, dict):
+            raw = base.get(action, base.get("default"))
+
+        value: Optional[float] = self._coerce_timeout(raw)
+        return value if value is not None else default
 
     # ==================== NapCat 配置 ====================
 
@@ -383,38 +452,58 @@ _logging_setup_done: bool = False
 def setup_logging(
     log_level: Optional[str] = None,
     log_dir: Optional[str] = None,
+    log_file: Optional[str] = None,
     backup_count: int = 30,
+    force: bool = False,
 ) -> None:
     """设置日志系统（按日期轮转，保留最近30天，幂等调用）
 
+    取值优先级：显式参数 > ``config.yaml`` 的 ``logging.*`` > 环境变量
+    ``LOG_LEVEL`` / ``LOG_DIR`` > 内置默认值。
+
     Args:
-        log_level: 日志级别，默认从 Config 读取
-        log_dir: 日志目录，默认从 Config 读取
+        log_level: 日志级别，缺省读 config.yaml 的 logging.level
+        log_dir: 日志目录，缺省读 config.yaml 的 logging.log_dir
+        log_file: 日志文件名，缺省读 config.yaml 的 logging.log_file
         backup_count: 保留的日志文件数量，默认30
+        force: 为 True 时关闭并重建已有处理器（用于运行时切换日志级别）
     """
     global _logging_setup_done
-    if _logging_setup_done:
+    if _logging_setup_done and not force:
         return
+
+    root: logging.Logger = logging.getLogger()
+
+    # force 重建前先关闭旧处理器，避免文件句柄泄漏（Windows 下尤其明显）
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+
     _logging_setup_done = True
 
-    level: str = log_level if log_level is not None else Config.LOG_LEVEL
-    directory: str = log_dir if log_dir is not None else Config.LOG_DIR
+    level: str = log_level or config_manager.get("logging.level") or Config.LOG_LEVEL
+    directory: str = (
+        log_dir or config_manager.get("logging.log_dir") or Config.LOG_DIR
+    )
+    filename: str = (
+        log_file or config_manager.get("logging.log_file") or "bot.log"
+    )
 
     # 创建日志目录
     log_path: Path = Path(directory)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    log_file: Path = log_path / "bot.log"
+    log_file_path: Path = log_path / filename
 
-    # 根日志器
-    root: logging.Logger = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
-    root.handlers.clear()
 
     # 文件处理器（按日期轮转）
     fh: logging.handlers.TimedRotatingFileHandler = (
         logging.handlers.TimedRotatingFileHandler(
-            str(log_file),
+            str(log_file_path),
             when="midnight",
             interval=1,
             backupCount=backup_count,

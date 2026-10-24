@@ -474,21 +474,28 @@ class WeeklyArchiver:
         if identifier.startswith('W') or identifier.startswith('w'):
             try:
                 week_num = int(identifier[1:])
-                if week_num < 1 or week_num > 53:
-                    return None, "无效的周数"
-                current_year = datetime.now().year
-                week_key = f"{current_year}-W{week_num:02d}"
-                week_first_day = datetime.strptime(f"{current_year}-W{week_num:02d}-1", "%Y-W%W-%w")
-                week_end = week_first_day + timedelta(days=6)
-                week_info = f"{current_year}年第{week_num}周 ({week_first_day.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')})"
-                return week_key, week_info
             except (ValueError, IndexError):
                 return None, "周数格式错误"
+            if week_num < 1 or week_num > 53:
+                return None, "无效的周数"
+
+            # 使用 ISO 年并校验该年是否真的存在第 week_num 周
+            current_year = datetime.now().isocalendar()[0]
+            max_week = datetime(current_year, 12, 28).isocalendar()[1]
+            if week_num > max_week:
+                return None, f"错误：{current_year} 年只有 {max_week} 周，不存在第 {week_num} 周"
+
+            week_first_day = datetime.fromisocalendar(current_year, week_num, 1)
+            week_end = week_first_day + timedelta(days=6)
+            week_key = f"{current_year}-W{week_num:02d}"
+            week_info = f"{current_year}年第{week_num}周 ({week_first_day.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')})"
+            return week_key, week_info
         else:
             try:
                 target_date = datetime.strptime(identifier, "%Y-%m-%d")
                 week_start = target_date - timedelta(days=target_date.weekday())
-                week_key = f"{week_start.year}-W{week_start.isocalendar()[1]:02d}"
+                iso_year, iso_week, _ = week_start.isocalendar()
+                week_key = f"{iso_year}-W{iso_week:02d}"
                 week_end = week_start + timedelta(days=6)
                 week_info = f"{week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
                 return week_key, week_info
@@ -648,7 +655,8 @@ class WeeklyArchiver:
         """归档当前周的数据"""
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        week_key = f"{current_week_start.year}-W{current_week_start.isocalendar()[1]:02d}"
+        iso_year, iso_week, _ = current_week_start.isocalendar()
+        week_key = f"{iso_year}-W{iso_week:02d}"
         week_end = current_week_start + timedelta(days=6)
         week_info = f"{current_week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
         identifier = current_date.strftime("%Y-%m-%d")

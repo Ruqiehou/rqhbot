@@ -14,18 +14,13 @@ from sdk.config import setup_logging
 from sdk.core import OneBotClient
 from sdk.core.event_bus import EventBus
 from sdk.core.events import (
-    BaseEvent,
-    EssenceMsgNotice,
-    FriendAddNotice,
-    GroupAdminNotice,
-    GroupCardNotice,
     GroupMessageEvent,
-    GroupUploadNotice,
+    MetaEvent,
     NoticeEvent,
     PrivateMessageEvent,
     RequestEvent,
 )
-from sdk.pluginsystem import HotReloadPluginManager, PluginBase, PluginManager
+from sdk.pluginsystem import HotReloadPluginManager, PluginBase
 
 # 设置日志系统
 setup_logging()
@@ -37,6 +32,7 @@ GroupMsgHandler: TypeAlias = Callable[[GroupMessageEvent], Awaitable[None]]
 PrivateMsgHandler: TypeAlias = Callable[[PrivateMessageEvent], Awaitable[None]]
 NoticeHandler: TypeAlias = Callable[[NoticeEvent], Awaitable[None]]
 RequestHandler: TypeAlias = Callable[[RequestEvent], Awaitable[None]]
+MetaEventHandler: TypeAlias = Callable[[MetaEvent], Awaitable[None]]
 
 
 class BotClient:
@@ -60,9 +56,9 @@ class BotClient:
         self._private_message_handlers: List[PrivateMsgHandler] = []
         self._notice_handlers: List[NoticeHandler] = []
         self._request_handlers: List[RequestHandler] = []
+        self._meta_event_handlers: List[MetaEventHandler] = []
         self._tracked_tasks: Set[asyncio.Task[Any]] = set()
 
-        self.plugin_manager: PluginManager = PluginManager(self.api, self.event_bus)
         self.hot_reload_manager: HotReloadPluginManager = HotReloadPluginManager(self._plugins_dir)
 
         self._setup_handlers()
@@ -118,6 +114,15 @@ class BotClient:
                 self._dispatch_to_handlers(event, self._request_handlers)
             except Exception as e:
                 logger.error(f"处理请求事件时出错: {e}", exc_info=True)
+
+        @self.client.on_message("meta_event")
+        async def _handle_meta_event(data: Dict[str, Any]) -> None:
+            try:
+                event: MetaEvent = MetaEvent.from_dict(data)
+                await self.event_bus.publish(event)
+                self._dispatch_to_handlers(event, self._meta_event_handlers)
+            except Exception as e:
+                logger.error(f"处理元事件时出错: {e}", exc_info=True)
 
     def _fire_task(self, coro: Awaitable[Any]) -> None:
         """创建后台任务并追踪，异常会被记录而非静默丢失"""
@@ -221,6 +226,18 @@ class BotClient:
             return func
         return decorator
 
+    def on_meta_event(self) -> Callable[[MetaEventHandler], MetaEventHandler]:
+        """装饰器：注册元事件处理器（心跳 / 生命周期）
+
+        Returns:
+            装饰器函数
+        """
+        def decorator(func: MetaEventHandler) -> MetaEventHandler:
+            if func not in self._meta_event_handlers:
+                self._meta_event_handlers.append(func)
+            return func
+        return decorator
+
     # ======================== 插件管理 ========================
 
     def register_plugin(self, plugin: PluginBase) -> bool:
@@ -232,7 +249,7 @@ class BotClient:
         Returns:
             是否成功
         """
-        return self.plugin_manager.register_plugin(plugin)
+        return self.hot_reload_manager.register_plugin(plugin)
 
     async def load_plugins(self) -> List[str]:
         """使用热重载管理器从插件目录加载所有插件
@@ -281,10 +298,12 @@ class BotClient:
             load_plugins: 是否自动加载插件
         """
         try:
-            await self.client.connect()
+            if not await self.client.connect():
+                logger.error("连接服务器失败，退出启动流程")
+                return
 
             if debug:
-                logger.setLevel(logging.DEBUG)
+                setup_logging(log_level="DEBUG", force=True)
                 logger.info("调试模式已开启")
 
             # 加载插件（使用热重载管理器）
@@ -305,6 +324,7 @@ class BotClient:
             )
             logger.info(f"注册的通知处理器数量: {len(self._notice_handlers)}")
             logger.info(f"注册的请求处理器数量: {len(self._request_handlers)}")
+            logger.info(f"注册的元事件处理器数量: {len(self._meta_event_handlers)}")
             logger.info(
                 f"已加载插件数量: {len(self.hot_reload_manager.get_all_plugins())}"
             )
@@ -340,11 +360,16 @@ class BotClient:
         """一键启动：从 config.yaml 读取配置并运行机器人"""
         from sdk.config import config_manager
 
+        # 多实例后端（如 SnowLuma）启动前交互式选择实例
+        adapter = config_manager.adapter
+        if len(adapter.instances()) > 1:
+            adapter.select_instance()
+
         bot = cls(
-            ws_url=config_manager.get_ws_uri(),
-            access_token=config_manager.get_ws_token(),
+            ws_url=adapter.ws_uri(),
+            access_token=adapter.ws_token(),
             plugins_dir=config_manager.get("bot.plugin_dir", "plugins"),
-            backend=config_manager.get_backend_name(),
+            backend=adapter.name,
         )
         bot.start(
             debug=config_manager.get("settings.debug", False),
