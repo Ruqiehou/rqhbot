@@ -234,6 +234,7 @@ class OneBotClient(IClient):
         "send_private_forward_msg",
         "send_like",
         "send_group_notice",
+        "send_group_file",  # 上传群文件，重复上传会造成副作用
     })
 
     # 仅传输层异常允许重试；业务失败（status != ok）重试通常无意义
@@ -546,15 +547,18 @@ class OneBotClient(IClient):
         # 清空消息队列引用（防止重连时旧 Queue 泄漏）
         self.msg_queue = None
 
-        # 清空未完成的 echo Future
-        cancelled = 0
+        # 清空未完成的 echo Future，用 ConnectionError 而非 CancelledError
+        # 让调用方能够区分"连接断开导致的失败"和"被外部取消"
+        failed = 0
         for key, future in self.echo_map.items():
             if not future.done():
-                future.cancel()
-                cancelled += 1
+                future.set_exception(
+                    ConnectionError(f"连接已断开: {self.backend.display_name}")
+                )
+                failed += 1
         self.echo_map.clear()
-        if cancelled:
-            logger.warning(f"断开连接时取消了 {cancelled} 个未完成的 API 请求")
+        if failed:
+            logger.warning(f"断开连接时失败了 {failed} 个未完成的 API 请求")
 
         logger.info("WebSocket 连接已关闭")
         
@@ -740,11 +744,15 @@ class OneBotClient(IClient):
     def _resolve_timeout(self, action: str, override: Optional[float] = None) -> float:
         """解析单次 API 调用的超时（秒）
 
-        优先级：显式 override > config.yaml 的 settings.api_timeout.<action>
-        > 内置 ACTION_TIMEOUTS 表 > DEFAULT_API_TIMEOUT。
+        优先级：显式 override > _call_timeout（测试钩子）> config.yaml 的
+        settings.api_timeout.<action> > 内置 ACTION_TIMEOUTS 表 > DEFAULT_API_TIMEOUT。
         """
         if override is not None:
             return override
+        # 测试钩子：_call_timeout 可以是 float 或 callable
+        call_timeout = getattr(self, "_call_timeout", None)
+        if call_timeout is not None:
+            return call_timeout() if callable(call_timeout) else float(call_timeout)
         fallback: float = self.ACTION_TIMEOUTS.get(action, self.DEFAULT_API_TIMEOUT)
         return config_manager.get_api_timeout(action, fallback)
 
@@ -791,11 +799,14 @@ class OneBotClient(IClient):
         if not self.connected or not self.ws:
             raise ConnectionError(f"未连接到{self.backend.display_name}服务器")
 
-        if max_retries is None:
-            max_retries = (
-                1 if action in self.NON_IDEMPOTENT_ACTIONS else 3
-            )
-        attempts: int = max(1, max_retries)
+        # 非幂等接口强制只尝试一次，无论调用方传入什么 max_retries
+        # 防止重复发送消息/点赞等造成副作用
+        if action in self.NON_IDEMPOTENT_ACTIONS:
+            attempts = 1
+        elif max_retries is None:
+            attempts = 3
+        else:
+            attempts = max(1, max_retries)
         call_timeout: float = self._resolve_timeout(action, timeout)
 
         last_error: Optional[BaseException] = None
