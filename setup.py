@@ -14,7 +14,7 @@ from setuptools import setup, find_packages
 setup(
     name="rqhbot",
     version="3.8.0",
-    description="基于 NapCat OneBot11 协议的 Python QQ 机器人开发框架",
+    description="基于 OneBot 11 协议的 Python QQ 机器人开发框架，支持 NapCat / SnowLuma 等多后端",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="RqhBot Team",
@@ -49,7 +49,7 @@ setup(
             "mypy>=1.10",
         ],
     },
-    keywords=["qqbot", "onebot", "napcat", "chatbot"],
+    keywords=["qqbot", "onebot", "napcat", "snowluma", "chatbot"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
