@@ -20,11 +20,11 @@ from .plugin_base import (
 from .plugin_manager import HotReloadPluginManager
 
 __all__: list[str] = [
+    "HotReloadPluginManager",
     "PluginBase",
     "PluginManager",
-    "HotReloadPluginManager",
     "filter_registry",
     "group_server",
-    "private_server",
     "message_filter",
+    "private_server",
 ]

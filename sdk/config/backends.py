@@ -9,8 +9,8 @@ from __future__ import annotations
 from sdk.adapter.backends import BACKENDS, DEFAULT_BACKEND, BackendSpec, get_backend
 
 __all__: list[str] = [
-    "BackendSpec",
     "BACKENDS",
     "DEFAULT_BACKEND",
+    "BackendSpec",
     "get_backend",
 ]

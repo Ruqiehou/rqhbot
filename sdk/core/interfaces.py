@@ -7,19 +7,22 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from typing import (
-    Any, Awaitable, Callable, Dict, List, Optional, TypeAlias,
+    Any,
+    Protocol,
+    TypeAlias,
+    runtime_checkable,
 )
-from typing import Protocol, runtime_checkable
 
 # 消息段类型
-MessageSegmentType = Dict[str, Any]
+MessageSegmentType = dict[str, Any]
 
 logger = logging.getLogger(__name__)
 
 # ---- 基础类型别名 ----
-APIResponse: TypeAlias = Dict[str, Any]
-EventHandler: TypeAlias = Callable[[Dict[str, Any]], Awaitable[None]]
+APIResponse: TypeAlias = dict[str, Any]
+EventHandler: TypeAlias = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 # ==================== 客户端接口 ====================
@@ -34,7 +37,7 @@ class IClient(Protocol):
         """是否已连接到服务端"""
         ...
 
-    async def connect(self, max_retries: Optional[int] = None) -> bool:
+    async def connect(self, max_retries: int | None = None) -> bool:
         """建立连接（支持重试）
 
         Args:
@@ -57,10 +60,10 @@ class IClient(Protocol):
     async def call(
         self,
         action: str,
-        params: Optional[Dict[str, Any]] = None,
-        max_retries: Optional[int] = None,
+        params: dict[str, Any] | None = None,
+        max_retries: int | None = None,
         retry_delay: float = 1.0,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
     ) -> APIResponse:
         """调用底层 API
 
@@ -85,8 +88,8 @@ class IClient(Protocol):
         self,
         user_id: int,
         message: str = "",
-        image_path: Optional[str] = None,
-        reply_message_id: Optional[int] = None,
+        image_path: str | None = None,
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送私聊消息
 
@@ -105,9 +108,9 @@ class IClient(Protocol):
         self,
         group_id: int,
         message: str = "",
-        image_path: Optional[str] = None,
-        at_user_id: Optional[int] = None,
-        reply_message_id: Optional[int] = None,
+        image_path: str | None = None,
+        at_user_id: int | None = None,
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送群聊消息
 
@@ -127,8 +130,8 @@ class IClient(Protocol):
     async def send_group_message_segments(
         self,
         group_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送图文混排群消息（数组格式）"""
         ...
@@ -136,8 +139,8 @@ class IClient(Protocol):
     async def send_private_message_segments(
         self,
         user_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送图文混排私聊消息（数组格式）"""
         ...
@@ -146,9 +149,9 @@ class IClient(Protocol):
         self,
         event: Any,
         message: str = "",
-        message_segments: Optional[List[MessageSegmentType]] = None,
-        image_path: Optional[str] = None,
-        reply_message_id: Optional[int] = None,
+        message_segments: list[MessageSegmentType] | None = None,
+        image_path: str | None = None,
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """按事件来源统一回复（自动识别群聊/私聊）"""
         ...
@@ -284,7 +287,7 @@ class IClient(Protocol):
         ...
 
     # ---- 性能统计 ----
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """获取性能统计信息"""
         ...
 

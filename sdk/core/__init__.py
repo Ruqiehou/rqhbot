@@ -5,7 +5,7 @@ RqhBot SDK —— 核心模块
 
 from __future__ import annotations
 
-from .client import MessageSegment, NapCatClient, OneBotClient
+from .client import NapCatClient, OneBotClient
 from .event_bus import EventBus
 from .events import (
     BaseEvent,
@@ -31,32 +31,33 @@ from .events import (
     PrivateMessageEvent,
     RequestEvent,
 )
+from .messages import MessageSegment
 
 __all__: list[str] = [
-    "MessageSegment",
-    "OneBotClient",
-    "NapCatClient",
-    "EventBus",
     "BaseEvent",
-    "Message",
-    "GroupMessageEvent",
-    "PrivateMessageEvent",
-    "NoticeEvent",
-    "GroupIncreaseNotice",
-    "GroupDecreaseNotice",
-    "GroupBanNotice",
-    "GroupRecallNotice",
-    "FriendRecallNotice",
-    "GroupAdminNotice",
-    "GroupUploadNotice",
-    "GroupCardNotice",
-    "FriendAddNotice",
     "EssenceMsgNotice",
-    "PokeNotice",
-    "MetaEvent",
+    "EventBus",
+    "FriendAddNotice",
+    "FriendRecallNotice",
+    "FriendRequestEvent",
+    "GroupAdminNotice",
+    "GroupBanNotice",
+    "GroupCardNotice",
+    "GroupDecreaseNotice",
+    "GroupIncreaseNotice",
+    "GroupMessageEvent",
+    "GroupRecallNotice",
+    "GroupRequestEvent",
+    "GroupUploadNotice",
     "HeartbeatEvent",
     "LifecycleEvent",
+    "Message",
+    "MessageSegment",
+    "MetaEvent",
+    "NapCatClient",
+    "NoticeEvent",
+    "OneBotClient",
+    "PokeNotice",
+    "PrivateMessageEvent",
     "RequestEvent",
-    "FriendRequestEvent",
-    "GroupRequestEvent",
 ]

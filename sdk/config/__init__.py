@@ -16,13 +16,13 @@ from .config import (
 )
 
 __all__: list[str] = [
+    "BACKENDS",
+    "DEFAULT_BACKEND",
+    "BackendSpec",
     "Config",
     "ConfigManager",
     "config_manager",
-    "setup_logging",
-    "get_logger",
-    "BackendSpec",
-    "BACKENDS",
-    "DEFAULT_BACKEND",
     "get_backend",
+    "get_logger",
+    "setup_logging",
 ]

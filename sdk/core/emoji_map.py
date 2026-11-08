@@ -4,10 +4,8 @@ QQ 表情 ID → 名称映射
 """
 from __future__ import annotations
 
-from typing import Dict
-
 # QQ 小黄脸及常用表情 ID → 名称
-FACE_NAMES: Dict[int, str] = {
+FACE_NAMES: dict[int, str] = {
     0:   "惊讶", 1:   "撇嘴", 2:   "色", 3:   "发呆",
     4:   "得意", 5:   "流泪", 6:   "害羞", 7:   "闭嘴",
     8:   "睡", 9:   "大哭", 10:  "尴尬", 11:  "发怒",

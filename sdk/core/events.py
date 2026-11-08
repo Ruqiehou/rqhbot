@@ -10,16 +10,16 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Self
+from typing import Any, Self
 
 from .emoji_map import get_face_name
 
 logger = logging.getLogger(__name__)
 
 # ---- 类型别名 ----
-MessageSegmentData = Dict[str, Any]
-SenderInfo = Dict[str, Any]
-EventData = Dict[str, Any]
+MessageSegmentData = dict[str, Any]
+SenderInfo = dict[str, Any]
+EventData = dict[str, Any]
 
 # ---- 外部输入安全转换 ----
 
@@ -32,7 +32,7 @@ def _as_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     """确保字段是字典，非法值降级为空字典"""
     return value if isinstance(value, dict) else {}
 
@@ -50,12 +50,12 @@ def _cq_unescape(text: str) -> str:
     )
 
 
-def _parse_cq_string(raw: str) -> Optional[List[MessageSegmentData]]:
+def _parse_cq_string(raw: str) -> list[MessageSegmentData] | None:
     """把 CQ 码字符串转换为消息段数组；不含 CQ 码时返回 None"""
     if "[CQ:" not in raw:
         return None
 
-    segments: List[MessageSegmentData] = []
+    segments: list[MessageSegmentData] = []
     pos = 0
     for match in _CQ_PATTERN.finditer(raw):
         if match.start() > pos:
@@ -63,7 +63,7 @@ def _parse_cq_string(raw: str) -> Optional[List[MessageSegmentData]]:
             if text:
                 segments.append({"type": "text", "data": {"text": text}})
 
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         for part in match.group(2).split(",")[1:]:
             if "=" in part:
                 key, value = part.split("=", 1)
@@ -81,7 +81,7 @@ def _parse_cq_string(raw: str) -> Optional[List[MessageSegmentData]]:
 # ---- 消息解析缓存 ----
 # 同一条消息在不同事件中会被反复解析（如撤回、引用、历史消息），
 # 以 raw_message（CQ 码）为键缓存解析结果，命中时直接复制，避免逐段解析。
-_MESSAGE_CACHE: Dict[str, "Message"] = {}
+_MESSAGE_CACHE: dict[str, Message] = {}
 _MESSAGE_CACHE_MAXSIZE: int = 512
 
 
@@ -90,14 +90,14 @@ class Message:
     """消息内容"""
     plain_text: str = ""
     raw_message: str = ""
-    segments: List[MessageSegmentData] = field(default_factory=list)
-    face_ids: List[int] = field(default_factory=list)        # 表情 ID 列表
-    face_names: List[str] = field(default_factory=list)      # 表情名称列表
+    segments: list[MessageSegmentData] = field(default_factory=list)
+    face_ids: list[int] = field(default_factory=list)        # 表情 ID 列表
+    face_names: list[str] = field(default_factory=list)      # 表情名称列表
     has_dice: bool = False                                    # 是否含骰子
     has_rps: bool = False                                     # 是否含猜拳
     has_poke: bool = False                                    # 是否含戳一戳
     has_sticker: bool = False                                 # 是否含收藏表情包
-    at_user_ids: List[int] = field(default_factory=list)     # 被 @ 的用户列表
+    at_user_ids: list[int] = field(default_factory=list)     # 被 @ 的用户列表
     has_reply: bool = False                                   # 是否含回复消息
     reply_message_id: int = 0                                 # 回复的消息 ID
     has_image: bool = False                                   # 是否含图片
@@ -111,7 +111,7 @@ class Message:
     has_markdown: bool = False                                # 是否含 Markdown
 
     @classmethod
-    def _copy_from(cls, other: "Message") -> "Message":
+    def _copy_from(cls, other: Message) -> Message:
         """从缓存中的 Message 生成独立副本
 
         缓存对象会被多个事件共享，复制可变字段（列表）可避免某个处理器
@@ -147,7 +147,7 @@ class Message:
 
         仅当消息为数组格式且提供 raw_message 时走缓存；其余情况直接解析。
         """
-        cache_key: Optional[str] = None
+        cache_key: str | None = None
         if raw_message and isinstance(value, list):
             try:
                 fingerprint = hashlib.sha256(
@@ -183,11 +183,11 @@ class Message:
     @classmethod
     def _parse(cls, value: Any, raw_message: str = "") -> Self:
         if isinstance(value, list):
-            text_parts: List[str] = []
-            segments: List[MessageSegmentData] = []
-            face_ids: List[int] = []
-            face_names: List[str] = []
-            at_user_ids: List[int] = []
+            text_parts: list[str] = []
+            segments: list[MessageSegmentData] = []
+            face_ids: list[int] = []
+            face_names: list[str] = []
+            at_user_ids: list[int] = []
             has_sticker = False
             has_reply = False
             reply_message_id = 0
@@ -596,7 +596,7 @@ class GroupAdminNotice(NoticeEvent):
 class GroupUploadNotice(NoticeEvent):
     """群文件上传"""
     notice_type: str = "group_upload"
-    file: Dict[str, Any] = field(default_factory=dict)
+    file: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def _build(cls, data: EventData) -> Self:
@@ -685,7 +685,7 @@ class HeartbeatEvent(MetaEvent):
     """心跳事件"""
 
     meta_event_type: str = "heartbeat"
-    status: Dict[str, Any] = field(default_factory=dict)
+    status: dict[str, Any] = field(default_factory=dict)
     interval: int = 0
 
     @classmethod

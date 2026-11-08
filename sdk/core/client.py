@@ -5,9 +5,12 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import (
-    Any, Awaitable, Callable, Dict, Final, List, Optional, Union,
+    Any,
+    Final,
 )
+
 import websockets
 from websockets.exceptions import ConnectionClosed
 
@@ -19,6 +22,7 @@ from sdk.core.interfaces import (
     IConnectionEventListener,
     MessageSegmentType,
 )
+from sdk.core.messages import MessageSegment
 
 # 设置日志系统
 setup_logging()
@@ -37,167 +41,8 @@ def _coerce(value: Any, cast: Callable[[Any], Any], default: Any) -> Any:
 
 
 # ---- 类型别名 ----
-EventHandler = Callable[[Dict[str, Any]], Awaitable[None]]
+EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 Decorator = Callable[[EventHandler], EventHandler]
-
-
-# ==================== 消息段构建工具 ====================
-
-
-class MessageSegment:
-    """消息段构建器 —— 用于构建 OneBot 11 数组格式的消息
-
-    OneBot 11（NapCat / SnowLuma 等）的 message 支持数组格式：
-    ```python
-    [
-        {"type": "text", "data": {"text": "你好，"}},
-        {"type": "image", "data": {"file": "https://example.com/pic.png"}},
-        {"type": "text", "data": {"text": "这是图片！"}},
-    ]
-    ```
-    """
-
-    @staticmethod
-    def text(content: str) -> MessageSegmentType:
-        """文字消息段"""
-        return {"type": "text", "data": {"text": content}}
-
-    @staticmethod
-    def image(file: str, summary: str = "") -> MessageSegmentType:
-        """图片消息段
-        Args:
-            file: 图片路径（本地路径或 URL）
-            summary: 图片简介（可选，用于加载失败时显示）
-        """
-        data: Dict[str, Any] = {"file": file}
-        if summary:
-            data["summary"] = summary
-        return {"type": "image", "data": data}
-
-    @staticmethod
-    def at(qq: Union[int, str]) -> MessageSegmentType:
-        """@某人消息段"""
-        return {"type": "at", "data": {"qq": str(qq)}}
-
-    @staticmethod
-    def reply(message_id: int) -> MessageSegmentType:
-        """回复消息段"""
-        return {"type": "reply", "data": {"id": message_id}}
-
-    @staticmethod
-    def face(face_id: int) -> MessageSegmentType:
-        """QQ 表情消息段 (face id)"""
-        return {"type": "face", "data": {"id": face_id}}
-
-    @staticmethod
-    def dice() -> MessageSegmentType:
-        """骰子消息段"""
-        return {"type": "dice", "data": {}}
-
-    @staticmethod
-    def rps() -> MessageSegmentType:
-        """猜拳消息段"""
-        return {"type": "rps", "data": {}}
-
-    @staticmethod
-    def json_data(data: Union[Dict[str, Any], str]) -> MessageSegmentType:
-        """JSON 卡片消息段"""
-        if isinstance(data, dict):
-            data = json.dumps(data, ensure_ascii=False)
-        return {"type": "json", "data": {"data": data}}
-
-    @staticmethod
-    def video(file: str) -> MessageSegmentType:
-        """视频消息段"""
-        return {"type": "video", "data": {"file": file}}
-
-    @staticmethod
-    def record(file: str, magic: bool = False) -> MessageSegmentType:
-        """语音消息段"""
-        data: Dict[str, Any] = {"file": file}
-        if magic:
-            data["magic"] = True
-        return {"type": "record", "data": data}
-
-    @staticmethod
-    def file(file: str, file_name: str = "") -> MessageSegmentType:
-        """文件消息段"""
-        data: Dict[str, Any] = {"file": file}
-        if file_name:
-            data["file_name"] = file_name
-        return {"type": "file", "data": data}
-
-    @staticmethod
-    def forward(res_id: str = "", news: Optional[List[Dict[str, Any]]] = None) -> MessageSegmentType:
-        """合并转发消息段"""
-        data: Dict[str, Any] = {}
-        if res_id:
-            data["id"] = res_id
-        if news:
-            data["news"] = news
-        return {"type": "forward", "data": data}
-
-    @staticmethod
-    def node(name: str, uin: int, content: List[MessageSegmentType]) -> MessageSegmentType:
-        """合并转发节点"""
-        return {
-            "type": "node",
-            "data": {
-                "name": name,
-                "uin": str(uin),
-                "content": content,
-            },
-        }
-
-    @staticmethod
-    def music(
-        type_: str,
-        id_: str = "",
-        url: str = "",
-        title: str = "",
-        content: str = "",
-        image: str = "",
-    ) -> MessageSegmentType:
-        """音乐卡片消息段
-
-        Args:
-            type_: 平台类型（qq / 163 / kugou / mfeel / bilibili）
-            id_: 音乐平台的歌曲 ID
-            url: 点击后跳转的链接
-            title: 标题
-            content: 简介
-            image: 封面图
-        """
-        data: Dict[str, Any] = {"type": type_}
-        if id_:
-            data["id"] = id_
-        if url:
-            data["url"] = url
-        if title:
-            data["title"] = title
-        if content:
-            data["content"] = content
-        if image:
-            data["image"] = image
-        return {"type": "music", "data": data}
-
-    @staticmethod
-    def markdown(content: str) -> MessageSegmentType:
-        """Markdown 消息段"""
-        return {"type": "markdown", "data": {"content": content}}
-
-    @staticmethod
-    def mface(emoji_id: str, emoji_type: int = 0) -> MessageSegmentType:
-        """表情商店表情消息段"""
-        data: Dict[str, Any] = {"emoji_id": emoji_id}
-        if emoji_type:
-            data["emoji_type"] = emoji_type
-        return {"type": "mface", "data": data}
-
-    @staticmethod
-    def xml(data: str) -> MessageSegmentType:
-        """XML 消息段"""
-        return {"type": "xml", "data": {"data": data}}
 
 
 class OneBotClient(IClient):
@@ -214,7 +59,7 @@ class OneBotClient(IClient):
     # ---- API 调用超时 ----
     DEFAULT_API_TIMEOUT: Final[float] = 30.0
     # 部分 API 在群/好友数量大时响应较慢，单独放宽超时
-    ACTION_TIMEOUTS: Final[Dict[str, float]] = {
+    ACTION_TIMEOUTS: Final[dict[str, float]] = {
         "get_group_list": 60.0,
         "get_group_member_list": 60.0,
         "get_friend_list": 60.0,
@@ -247,26 +92,26 @@ class OneBotClient(IClient):
 
     def __init__(
         self,
-        ws_url: Optional[str] = None,
-        access_token: Optional[str] = None,
-        backend: Optional[str] = None,
+        ws_url: str | None = None,
+        access_token: str | None = None,
+        backend: str | None = None,
     ) -> None:
         self.backend: BackendSpec = get_backend(backend)
         raw_url: str = ws_url or Config.NAPCAT_WS_URL or self.backend.default_ws_uri
         self.ws_url: str = raw_url
         self.access_token: str = access_token or Config.NAPCAT_ACCESS_TOKEN
-        self.ws: Optional[websockets.WebSocketClientProtocol] = None
-        self.message_handlers: Dict[str, List[EventHandler]] = {}
+        self.ws: websockets.WebSocketClientProtocol | None = None
+        self.message_handlers: dict[str, list[EventHandler]] = {}
         self._connected: bool = False
-        self.echo_map: Dict[str, asyncio.Future[Any]] = {}
+        self.echo_map: dict[str, asyncio.Future[Any]] = {}
 
         # ---- 消息处理队列 ----
-        self.msg_queue: Optional[asyncio.Queue[str]] = None
-        self._processing_task: Optional[asyncio.Task[None]] = None
-        self._listen_task: Optional[asyncio.Task[None]] = None
+        self.msg_queue: asyncio.Queue[str] | None = None
+        self._processing_task: asyncio.Task[None] | None = None
+        self._listen_task: asyncio.Task[None] | None = None
 
         # ---- 性能监控 ----
-        self._perf_stats: Dict[str, Union[int, float]] = {
+        self._perf_stats: dict[str, int | float] = {
             "total_messages": 0,
             "total_processing_time": 0.0,
             "avg_latency": 0.0,
@@ -287,18 +132,18 @@ class OneBotClient(IClient):
             self.RECONNECT_DELAY,
         )
         self._reconnect_attempts: int = 0
-        self._reconnect_task: Optional[asyncio.Task[None]] = None
+        self._reconnect_task: asyncio.Task[None] | None = None
         self._closing: bool = False  # 主动关闭后不再自动重连
 
         # ---- 连接事件监听器 ----
-        self._connection_listeners: List[IConnectionEventListener] = []
+        self._connection_listeners: list[IConnectionEventListener] = []
 
         # ---- echo_map 保护（最多 1000 条，防止内存泄漏）----
         self._echo_maxsize: int = 1000
 
         # ---- 处理器并发控制 ----
         self._handler_semaphore: asyncio.Semaphore = asyncio.Semaphore(64)
-        self._session_locks: Dict[str, asyncio.Lock] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def connected(self) -> bool:
@@ -317,7 +162,7 @@ class OneBotClient(IClient):
         造成同一条消息被重复处理。
         """
         for attr in ("_processing_task", "_listen_task"):
-            task: Optional[asyncio.Task[None]] = getattr(self, attr)
+            task: asyncio.Task[None] | None = getattr(self, attr)
             if task is None or task is asyncio.current_task():
                 continue
             task.cancel()
@@ -391,13 +236,13 @@ class OneBotClient(IClient):
         self._reconnect_attempts = 0
         logger.error(f"自动重连失败，已尝试 {self.RECONNECT_MAX_ROUNDS} 轮")
 
-    async def connect(self, max_retries: Optional[int] = None) -> bool:
+    async def connect(self, max_retries: int | None = None) -> bool:
         """
         建立连接（支持重连）
-        
+
         Args:
             max_retries: 最大重试次数，None使用默认配置
-            
+
         Returns:
             是否连接成功
         """
@@ -407,7 +252,7 @@ class OneBotClient(IClient):
 
         retries = 0
         max_retries = max_retries or self.max_reconnect_attempts
-        
+
         while retries < max_retries:
             try:
                 if retries > 0:
@@ -418,7 +263,7 @@ class OneBotClient(IClient):
                             await listener.on_reconnecting(retries)
                         except Exception as e:
                             logger.error(f"重连监听器执行失败: {e}")
-                
+
                 headers = {}
                 if self.access_token:
                     headers["Authorization"] = f"Bearer {self.access_token}"
@@ -435,18 +280,18 @@ class OneBotClient(IClient):
                     self.ws_url,
                     **connect_kwargs
                 )
-                
+
                 # 初始化消息队列
                 self.msg_queue = asyncio.Queue(maxsize=1000)
-                
+
                 self._connected = True
 
                 # 启动接收任务
                 self._listen_task = asyncio.create_task(self._listen_messages())
-                
+
                 # 启动处理任务
                 self._processing_task = asyncio.create_task(self._process_messages())
-                
+
                 was_reconnect = self._reconnect_attempts > 0
                 self._reconnect_attempts = 0
 
@@ -461,20 +306,20 @@ class OneBotClient(IClient):
                             await listener.on_connected()
                     except Exception as e:
                         logger.error(f"连接监听器执行失败: {e}")
-                
+
                 return True
-                
+
             except Exception as e:
                 retries += 1
                 logger.error(f"连接失败 ({retries}/{max_retries}): {e}")
-                
+
                 if retries < max_retries:
                     wait_time = self.reconnect_delay * retries
                     logger.info(f"{wait_time}秒后重试...")
                     await asyncio.sleep(wait_time)
-        
+
         logger.error(f"连接失败，已达到最大重试次数 ({max_retries})")
-        
+
         # 通知重连失败
         for listener in self._connection_listeners:
             try:
@@ -483,9 +328,9 @@ class OneBotClient(IClient):
                 )
             except Exception as e:
                 logger.error(f"重连失败监听器执行失败: {e}")
-        
+
         return False
-    
+
     async def disconnect(self, force: bool = False) -> None:
         """断开连接
 
@@ -510,7 +355,7 @@ class OneBotClient(IClient):
             return
 
         self._connected = False
-        
+
         # 关闭消息队列处理
         if self._processing_task:
             self._processing_task.cancel()
@@ -522,7 +367,7 @@ class OneBotClient(IClient):
                 logger.error(f"关闭处理任务时出错: {e}")
             finally:
                 self._processing_task = None
-        
+
         # 关闭监听任务
         if self._listen_task:
             self._listen_task.cancel()
@@ -534,7 +379,7 @@ class OneBotClient(IClient):
                 logger.error(f"关闭监听任务时出错: {e}")
             finally:
                 self._listen_task = None
-        
+
         # 关闭 WebSocket 连接
         if self.ws:
             try:
@@ -550,7 +395,7 @@ class OneBotClient(IClient):
         # 清空未完成的 echo Future，用 ConnectionError 而非 CancelledError
         # 让调用方能够区分"连接断开导致的失败"和"被外部取消"
         failed = 0
-        for key, future in self.echo_map.items():
+        for future in self.echo_map.values():
             if not future.done():
                 future.set_exception(
                     ConnectionError(f"连接已断开: {self.backend.display_name}")
@@ -561,14 +406,14 @@ class OneBotClient(IClient):
             logger.warning(f"断开连接时失败了 {failed} 个未完成的 API 请求")
 
         logger.info("WebSocket 连接已关闭")
-        
+
         # 通知断开连接
         for listener in self._connection_listeners:
             try:
                 await listener.on_disconnected()
             except Exception as e:
                 logger.error(f"断开连接监听器执行失败: {e}")
-    
+
     def add_connection_listener(self, listener: IConnectionEventListener) -> None:
         """添加连接事件监听器
 
@@ -640,10 +485,10 @@ class OneBotClient(IClient):
                     message = await asyncio.wait_for(self.msg_queue.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     continue
-                
+
                 # 性能监控 - 开始
                 start_time = time.perf_counter()
-                
+
                 try:
                     data = json.loads(message)
                     await self._handle_message(data)
@@ -657,16 +502,16 @@ class OneBotClient(IClient):
                     self._perf_stats["total_messages"] += 1
                     self._perf_stats["total_processing_time"] += processing_time
                     self._perf_stats["avg_latency"] = (
-                        self._perf_stats["total_processing_time"] / 
+                        self._perf_stats["total_processing_time"] /
                         self._perf_stats["total_messages"]
                     )
-                    
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"处理循环错误: {e}")
 
-    async def _handle_message(self, data: Dict[str, Any]) -> None:
+    async def _handle_message(self, data: dict[str, Any]) -> None:
         """处理消息"""
         if "echo" in data:
             echo_id = data["echo"]
@@ -675,16 +520,16 @@ class OneBotClient(IClient):
                 if not future.done():
                     future.set_result(data)
                 return
-        
+
         post_type = data.get("post_type")
         message_type = data.get("message_type")
-        
+
         event_types = []
         if post_type:
             event_types.append(post_type)
         if message_type and message_type != post_type:
             event_types.append(message_type)
-        
+
         seen: set[int] = set()
         for event_type in event_types:
             for handler in self.message_handlers.get(event_type, []):
@@ -699,7 +544,7 @@ class OneBotClient(IClient):
                     logger.error(f"创建处理器任务失败: {e}", exc_info=True)
 
     @staticmethod
-    def _session_key(data: Dict[str, Any]) -> str:
+    def _session_key(data: dict[str, Any]) -> str:
         """提取会话标识，用于保证同一会话内的处理器串行执行"""
         group_id = data.get("group_id")
         if group_id is not None:
@@ -710,7 +555,7 @@ class OneBotClient(IClient):
         return "global"
 
     async def _run_handler(
-        self, handler: EventHandler, data: Dict[str, Any]
+        self, handler: EventHandler, data: dict[str, Any]
     ) -> None:
         """在并发上限内执行处理器，并保证同一会话内顺序执行"""
         async with self._handler_semaphore:
@@ -741,7 +586,7 @@ class OneBotClient(IClient):
                 f"echo_map 已达上限 {self._echo_maxsize}，已淘汰最旧条目: {oldest_key!r}"
             )
 
-    def _resolve_timeout(self, action: str, override: Optional[float] = None) -> float:
+    def _resolve_timeout(self, action: str, override: float | None = None) -> float:
         """解析单次 API 调用的超时（秒）
 
         优先级：显式 override > _call_timeout（测试钩子）> config.yaml 的
@@ -774,9 +619,9 @@ class OneBotClient(IClient):
             return func
         return decorator
 
-    async def call(self, action: str, params: Optional[Dict[str, Any]] = None,
-                   max_retries: Optional[int] = None, retry_delay: float = 1.0,
-                   timeout: Optional[float] = None) -> APIResponse:
+    async def call(self, action: str, params: dict[str, Any] | None = None,
+                   max_retries: int | None = None, retry_delay: float = 1.0,
+                   timeout: float | None = None) -> APIResponse:
         """
         调用API
 
@@ -809,7 +654,7 @@ class OneBotClient(IClient):
             attempts = max(1, max_retries)
         call_timeout: float = self._resolve_timeout(action, timeout)
 
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
 
         for attempt in range(attempts):
             echo_id = f"rqhbot-{uuid.uuid4().hex}"
@@ -868,73 +713,73 @@ class OneBotClient(IClient):
 
 
     async def send_private_message(
-        self, 
-        user_id: int, 
-        message: str = "", 
-        image_path: Optional[str] = None,
-        reply_message_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self,
+        user_id: int,
+        message: str = "",
+        image_path: str | None = None,
+        reply_message_id: int | None = None
+    ) -> dict[str, Any]:
         """发送私聊消息（数组格式，更安全可靠）
-        
+
         Args:
             user_id: 用户ID
             message: 消息内容
             image_path: 图片文件路径（可选）
             reply_message_id: 回复的消息ID（可选）
-            
+
         Returns:
             API响应数据
         """
-        segments: List[MessageSegmentType] = []
-        
+        segments: list[MessageSegmentType] = []
+
         if reply_message_id is not None:
             segments.append(MessageSegment.reply(reply_message_id))
-        
+
         if message:
             segments.append(MessageSegment.text(message))
-        
+
         if image_path:
             segments.append(MessageSegment.image(image_path))
-        
+
         return await self.call("send_private_msg", {
             "user_id": user_id,
             "message": segments
         })
-    
+
     async def send_group_message(
-        self, 
-        group_id: int, 
-        message: str = "", 
-        image_path: Optional[str] = None,
-        at_user_id: Optional[int] = None,
-        reply_message_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self,
+        group_id: int,
+        message: str = "",
+        image_path: str | None = None,
+        at_user_id: int | None = None,
+        reply_message_id: int | None = None
+    ) -> dict[str, Any]:
         """发送群聊消息（数组格式，更安全可靠）
-        
+
         Args:
             group_id: 群ID
             message: 消息内容
             image_path: 图片文件路径（可选）
             at_user_id: @的用户ID（可选）
             reply_message_id: 回复的消息ID（可选）
-            
+
         Returns:
             API响应数据
         """
-        segments: List[MessageSegmentType] = []
-        
+        segments: list[MessageSegmentType] = []
+
         if reply_message_id is not None:
             segments.append(MessageSegment.reply(reply_message_id))
-        
+
         if at_user_id is not None:
             segments.append(MessageSegment.at(at_user_id))
-        
+
         if message:
             segments.append(MessageSegment.text(message))
-        
+
         if image_path:
             segments.append(MessageSegment.image(image_path))
-        
+
         return await self.call("send_group_msg", {
             "group_id": group_id,
             "message": segments
@@ -943,9 +788,9 @@ class OneBotClient(IClient):
     async def send_group_message_segments(
         self,
         group_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
+    ) -> dict[str, Any]:
         """发送图文混排群消息（数组格式，推荐）
 
         Args:
@@ -977,9 +822,9 @@ class OneBotClient(IClient):
     async def send_private_message_segments(
         self,
         user_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
+    ) -> dict[str, Any]:
         """发送图文混排私聊消息（数组格式，推荐）
 
         Args:
@@ -1013,9 +858,9 @@ class OneBotClient(IClient):
         self,
         group_id: int,
         message: str = "",
-        image_path: Optional[str] = None,
-        at_user_id: Optional[int] = None,
-        reply_message_id: Optional[int] = None,
+        image_path: str | None = None,
+        at_user_id: int | None = None,
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送群聊消息（send_group_message 别名）"""
         return await self.send_group_message(
@@ -1026,8 +871,8 @@ class OneBotClient(IClient):
         self,
         user_id: int,
         message: str = "",
-        image_path: Optional[str] = None,
-        reply_message_id: Optional[int] = None,
+        image_path: str | None = None,
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送私聊消息（send_private_message 别名）"""
         return await self.send_private_message(
@@ -1037,8 +882,8 @@ class OneBotClient(IClient):
     async def post_group_message_segments(
         self,
         group_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送群聊消息（消息段，send_group_message_segments 别名）"""
         return await self.send_group_message_segments(
@@ -1048,8 +893,8 @@ class OneBotClient(IClient):
     async def post_private_message_segments(
         self,
         user_id: int,
-        segments: List[MessageSegmentType],
-        reply_message_id: Optional[int] = None,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
     ) -> APIResponse:
         """发送私聊消息（消息段，send_private_message_segments 别名）"""
         return await self.send_private_message_segments(
@@ -1060,10 +905,10 @@ class OneBotClient(IClient):
         self,
         event: Any,
         message: str = "",
-        message_segments: Optional[List[MessageSegmentType]] = None,
-        image_path: Optional[str] = None,
-        reply_message_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        message_segments: list[MessageSegmentType] | None = None,
+        image_path: str | None = None,
+        reply_message_id: int | None = None,
+    ) -> dict[str, Any]:
         """按事件来源统一回复（自动识别群聊/私聊）
 
         Args:
@@ -1100,26 +945,26 @@ class OneBotClient(IClient):
         logger.warning("send_event_message: 事件无 group_id 或 user_id，无法回复")
         return {}
 
-    async def delete_message(self, message_id: int) -> Dict[str, Any]:
+    async def delete_message(self, message_id: int) -> dict[str, Any]:
         """撤回/删除消息
-        
+
         Args:
             message_id: 消息ID
-            
+
         Returns:
             API响应数据
         """
         return await self.call("delete_msg", {
             "message_id": message_id
         })
-    
-    async def group_poke(self, group_id: int, user_id: int) -> Dict[str, Any]:
+
+    async def group_poke(self, group_id: int, user_id: int) -> dict[str, Any]:
         """群内戳一戳
-        
+
         Args:
             group_id: 群号
             user_id: 要戳的用户ID
-            
+
         Returns:
             API响应数据
         """
@@ -1127,21 +972,21 @@ class OneBotClient(IClient):
             "group_id": group_id,
             "user_id": user_id
         })
-    
-    async def friend_poke(self, user_id: int) -> Dict[str, Any]:
+
+    async def friend_poke(self, user_id: int) -> dict[str, Any]:
         """好友戳一戳
-        
+
         Args:
             user_id: 要戳的用户ID
-            
+
         Returns:
             API响应数据
         """
         return await self.call("friend_poke", {
             "user_id": user_id
         })
-    
-    async def send_group_dice(self, group_id: int) -> Dict[str, Any]:
+
+    async def send_group_dice(self, group_id: int) -> dict[str, Any]:
         """发送群骰子消息
 
         Args:
@@ -1155,7 +1000,7 @@ class OneBotClient(IClient):
             "message": [MessageSegment.dice()]
         })
 
-    async def send_group_rps(self, group_id: int) -> Dict[str, Any]:
+    async def send_group_rps(self, group_id: int) -> dict[str, Any]:
         """发送群猜拳消息
 
         Args:
@@ -1169,7 +1014,7 @@ class OneBotClient(IClient):
             "message": [MessageSegment.rps()]
         })
 
-    async def send_private_dice(self, user_id: int) -> Dict[str, Any]:
+    async def send_private_dice(self, user_id: int) -> dict[str, Any]:
         """发送私聊骰子消息
 
         Args:
@@ -1183,7 +1028,7 @@ class OneBotClient(IClient):
             "message": [MessageSegment.dice()]
         })
 
-    async def send_private_rps(self, user_id: int) -> Dict[str, Any]:
+    async def send_private_rps(self, user_id: int) -> dict[str, Any]:
         """发送私聊猜拳消息
 
         Args:
@@ -1196,22 +1041,22 @@ class OneBotClient(IClient):
             "user_id": user_id,
             "message": [MessageSegment.rps()]
         })
-    
+
     async def get_group_message_history(
-        self, 
-        group_id: int, 
-        message_seq: Optional[int] = None, 
+        self,
+        group_id: int,
+        message_seq: int | None = None,
         count: int = 20,
         reverse_order: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """获取群消息历史记录
-        
+
         Args:
             group_id: 群号
             message_seq: 消息序号，提供则从该消息开始获取
             count: 获取数量，默认20
             reverse_order: 是否倒序，默认False
-            
+
         Returns:
             API响应数据
         """
@@ -1222,24 +1067,24 @@ class OneBotClient(IClient):
         }
         if message_seq is not None:
             params["message_seq"] = message_seq
-        
+
         return await self.call("get_group_msg_history", params)
-    
+
     async def get_private_message_history(
         self,
         user_id: int,
         message_seq: int,
         count: int = 20,
         reverse_order: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """获取私聊消息历史记录
-        
+
         Args:
             user_id: 用户ID
             message_seq: 消息序号
             count: 获取数量，默认20
             reverse_order: 是否倒序，默认False
-            
+
         Returns:
             API响应数据
         """
@@ -1249,13 +1094,13 @@ class OneBotClient(IClient):
             "count": count,
             "reverseOrder": reverse_order
         })
-    
-    async def get_message(self, message_id: int) -> Dict[str, Any]:
+
+    async def get_message(self, message_id: int) -> dict[str, Any]:
         """获取指定消息
-        
+
         Args:
             message_id: 消息ID
-            
+
         Returns:
             API响应数据
         """
@@ -1265,7 +1110,7 @@ class OneBotClient(IClient):
 
     # ======================== 群组管理 ========================
 
-    async def get_group_list(self) -> Dict[str, Any]:
+    async def get_group_list(self) -> dict[str, Any]:
         """获取群列表
 
         Returns:
@@ -1273,7 +1118,7 @@ class OneBotClient(IClient):
         """
         return await self.call("get_group_list")
 
-    async def get_group_member_list(self, group_id: int) -> Dict[str, Any]:
+    async def get_group_member_list(self, group_id: int) -> dict[str, Any]:
         """获取群成员列表
 
         Args:
@@ -1286,7 +1131,7 @@ class OneBotClient(IClient):
             "group_id": group_id
         })
 
-    async def get_group_member_info(self, group_id: int, user_id: int) -> Dict[str, Any]:
+    async def get_group_member_info(self, group_id: int, user_id: int) -> dict[str, Any]:
         """获取群成员信息
 
         Args:
@@ -1301,7 +1146,7 @@ class OneBotClient(IClient):
             "user_id": user_id
         })
 
-    async def set_group_ban(self, group_id: int, user_id: int, duration: int = 1800) -> Dict[str, Any]:
+    async def set_group_ban(self, group_id: int, user_id: int, duration: int = 1800) -> dict[str, Any]:
         """设置群禁言
 
         Args:
@@ -1318,7 +1163,7 @@ class OneBotClient(IClient):
             "duration": duration
         })
 
-    async def set_group_kick(self, group_id: int, user_id: int, reject_add_request: bool = False) -> Dict[str, Any]:
+    async def set_group_kick(self, group_id: int, user_id: int, reject_add_request: bool = False) -> dict[str, Any]:
         """踢出群成员
 
         Args:
@@ -1335,7 +1180,7 @@ class OneBotClient(IClient):
             "reject_add_request": reject_add_request
         })
 
-    async def set_group_card(self, group_id: int, user_id: int, card: str = "") -> Dict[str, Any]:
+    async def set_group_card(self, group_id: int, user_id: int, card: str = "") -> dict[str, Any]:
         """设置群成员名片
 
         Args:
@@ -1354,7 +1199,7 @@ class OneBotClient(IClient):
 
     # ======================== 好友管理 ========================
 
-    async def get_friend_list(self) -> Dict[str, Any]:
+    async def get_friend_list(self) -> dict[str, Any]:
         """获取好友列表
 
         Returns:
@@ -1362,7 +1207,7 @@ class OneBotClient(IClient):
         """
         return await self.call("get_friend_list")
 
-    async def get_login_info(self) -> Dict[str, Any]:
+    async def get_login_info(self) -> dict[str, Any]:
         """获取登录信息
 
         Returns:
@@ -1370,7 +1215,7 @@ class OneBotClient(IClient):
         """
         return await self.call("get_login_info")
 
-    async def get_stranger_info(self, user_id: int) -> Dict[str, Any]:
+    async def get_stranger_info(self, user_id: int) -> dict[str, Any]:
         """获取陌生人信息
 
         Args:
@@ -1385,7 +1230,7 @@ class OneBotClient(IClient):
 
     # ======================== 群管（扩展） ========================
 
-    async def get_group_info(self, group_id: int, no_cache: bool = False) -> Dict[str, Any]:
+    async def get_group_info(self, group_id: int, no_cache: bool = False) -> dict[str, Any]:
         """获取群信息
 
         Args:
@@ -1400,7 +1245,7 @@ class OneBotClient(IClient):
             "no_cache": no_cache,
         })
 
-    async def set_group_whole_ban(self, group_id: int, enable: bool = True) -> Dict[str, Any]:
+    async def set_group_whole_ban(self, group_id: int, enable: bool = True) -> dict[str, Any]:
         """设置群全员禁言
 
         Args:
@@ -1415,7 +1260,7 @@ class OneBotClient(IClient):
             "enable": enable,
         })
 
-    async def set_group_admin(self, group_id: int, user_id: int, enable: bool = True) -> Dict[str, Any]:
+    async def set_group_admin(self, group_id: int, user_id: int, enable: bool = True) -> dict[str, Any]:
         """设置群管理员
 
         Args:
@@ -1432,7 +1277,7 @@ class OneBotClient(IClient):
             "enable": enable,
         })
 
-    async def set_group_name(self, group_id: int, group_name: str) -> Dict[str, Any]:
+    async def set_group_name(self, group_id: int, group_name: str) -> dict[str, Any]:
         """设置群名
 
         Args:
@@ -1447,7 +1292,7 @@ class OneBotClient(IClient):
             "group_name": group_name,
         })
 
-    async def set_group_leave(self, group_id: int, is_dismiss: bool = False) -> Dict[str, Any]:
+    async def set_group_leave(self, group_id: int, is_dismiss: bool = False) -> dict[str, Any]:
         """退出群聊
 
         Args:
@@ -1462,7 +1307,7 @@ class OneBotClient(IClient):
             "is_dismiss": is_dismiss,
         })
 
-    async def set_group_special_title(self, group_id: int, user_id: int, special_title: str = "") -> Dict[str, Any]:
+    async def set_group_special_title(self, group_id: int, user_id: int, special_title: str = "") -> dict[str, Any]:
         """设置群专属头衔
 
         Args:
@@ -1479,7 +1324,7 @@ class OneBotClient(IClient):
             "special_title": special_title,
         })
 
-    async def get_group_honor_info(self, group_id: int, type_: str) -> Dict[str, Any]:
+    async def get_group_honor_info(self, group_id: int, type_: str) -> dict[str, Any]:
         """获取群荣誉信息
 
         Args:
@@ -1494,7 +1339,7 @@ class OneBotClient(IClient):
             "type": type_,
         })
 
-    async def get_group_at_all_remain(self, group_id: int) -> Dict[str, Any]:
+    async def get_group_at_all_remain(self, group_id: int) -> dict[str, Any]:
         """获取群 @全体成员 剩余次数
 
         Args:
@@ -1507,7 +1352,7 @@ class OneBotClient(IClient):
             "group_id": group_id,
         })
 
-    async def send_group_notice(self, group_id: int, content: str, image: str = "") -> Dict[str, Any]:
+    async def send_group_notice(self, group_id: int, content: str, image: str = "") -> dict[str, Any]:
         """发送群公告（扩展 API）
 
         Args:
@@ -1518,7 +1363,7 @@ class OneBotClient(IClient):
         Returns:
             API响应数据
         """
-        params: Dict[str, Any] = {
+        params: dict[str, Any] = {
             "group_id": group_id,
             "content": content,
         }
@@ -1526,7 +1371,7 @@ class OneBotClient(IClient):
             params["image"] = image
         return await self.call("send_group_notice", params)
 
-    async def set_essence_msg(self, message_id: int) -> Dict[str, Any]:
+    async def set_essence_msg(self, message_id: int) -> dict[str, Any]:
         """设置精华消息（扩展 API）
 
         Args:
@@ -1541,7 +1386,7 @@ class OneBotClient(IClient):
 
     # ======================== 状态查询 ========================
 
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> dict[str, Any]:
         """获取运行状态
 
         Returns:
@@ -1567,7 +1412,7 @@ class OneBotClient(IClient):
         result = await self.call("can_send_record")
         return bool(result.get("yes", False))
 
-    async def get_image(self, file: str) -> Dict[str, Any]:
+    async def get_image(self, file: str) -> dict[str, Any]:
         """获取图片信息
 
         Args:
@@ -1580,7 +1425,7 @@ class OneBotClient(IClient):
             "file": file,
         })
 
-    async def get_record(self, file: str, out_format: str = "mp3") -> Dict[str, Any]:
+    async def get_record(self, file: str, out_format: str = "mp3") -> dict[str, Any]:
         """获取语音信息
 
         Args:
@@ -1595,7 +1440,7 @@ class OneBotClient(IClient):
             "out_format": out_format,
         })
 
-    async def get_forward_msg(self, message_id: str) -> Dict[str, Any]:
+    async def get_forward_msg(self, message_id: str) -> dict[str, Any]:
         """获取合并转发消息内容
 
         Args:
@@ -1608,7 +1453,7 @@ class OneBotClient(IClient):
             "message_id": message_id,
         })
 
-    async def get_credentials(self, domain: str = "") -> Dict[str, Any]:
+    async def get_credentials(self, domain: str = "") -> dict[str, Any]:
         """获取登录凭证（Cookies 与 CSRF Token）
 
         Args:
@@ -1623,7 +1468,7 @@ class OneBotClient(IClient):
 
     # ======================== 请求处理 ========================
 
-    async def set_friend_add_request(self, flag: str, approve: bool = True, remark: str = "") -> Dict[str, Any]:
+    async def set_friend_add_request(self, flag: str, approve: bool = True, remark: str = "") -> dict[str, Any]:
         """处理好友请求
 
         Args:
@@ -1640,7 +1485,7 @@ class OneBotClient(IClient):
             "remark": remark
         })
 
-    async def set_group_add_request(self, flag: str, sub_type: str, approve: bool = True, reason: str = "") -> Dict[str, Any]:
+    async def set_group_add_request(self, flag: str, sub_type: str, approve: bool = True, reason: str = "") -> dict[str, Any]:
         """处理群请求
 
         Args:
@@ -1659,7 +1504,7 @@ class OneBotClient(IClient):
             "reason": reason
         })
 
-    async def send_like(self, user_id: int, times: int = 1) -> Dict[str, Any]:
+    async def send_like(self, user_id: int, times: int = 1) -> dict[str, Any]:
         """发送赞
 
         Args:
@@ -1674,21 +1519,21 @@ class OneBotClient(IClient):
             "times": times
         })
 
-    async def get_version_info(self) -> Dict[str, Any]:
+    async def get_version_info(self) -> dict[str, Any]:
         """获取版本信息
 
         Returns:
             API响应数据
         """
         return await self.call("get_version_info")
-    
-    def get_performance_stats(self) -> Dict[str, Union[int, float, bool]]:
+
+    def get_performance_stats(self) -> dict[str, int | float | bool]:
         """获取性能统计信息
 
         Returns:
             性能统计字典
         """
-        stats: Dict[str, Union[int, float, bool]] = dict(self._perf_stats.copy())
+        stats: dict[str, int | float | bool] = dict(self._perf_stats.copy())
         stats["reconnect_attempts"] = self._reconnect_attempts
         stats["is_connected"] = self._connected
         return stats

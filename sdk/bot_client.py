@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, TypeAlias
+from typing import Any, TypeAlias
 
 from sdk.config import setup_logging
 from sdk.core import OneBotClient
@@ -40,10 +41,10 @@ class BotClient:
 
     def __init__(
         self,
-        ws_url: Optional[str] = None,
-        access_token: Optional[str] = None,
+        ws_url: str | None = None,
+        access_token: str | None = None,
         plugins_dir: str = "plugins",
-        backend: Optional[str] = None,
+        backend: str | None = None,
     ) -> None:
         self.client: OneBotClient = OneBotClient(
             ws_url=ws_url, access_token=access_token, backend=backend
@@ -52,12 +53,12 @@ class BotClient:
         self.event_bus: EventBus = EventBus()
         self._plugins_dir: str = plugins_dir
 
-        self._group_message_handlers: List[GroupMsgHandler] = []
-        self._private_message_handlers: List[PrivateMsgHandler] = []
-        self._notice_handlers: List[NoticeHandler] = []
-        self._request_handlers: List[RequestHandler] = []
-        self._meta_event_handlers: List[MetaEventHandler] = []
-        self._tracked_tasks: Set[asyncio.Task[Any]] = set()
+        self._group_message_handlers: list[GroupMsgHandler] = []
+        self._private_message_handlers: list[PrivateMsgHandler] = []
+        self._notice_handlers: list[NoticeHandler] = []
+        self._request_handlers: list[RequestHandler] = []
+        self._meta_event_handlers: list[MetaEventHandler] = []
+        self._tracked_tasks: set[asyncio.Task[Any]] = set()
 
         self.hot_reload_manager: HotReloadPluginManager = HotReloadPluginManager(self._plugins_dir)
 
@@ -78,7 +79,7 @@ class BotClient:
         """向底层客户端注册事件路由，并通过 EventBus 发布强类型事件"""
 
         @self.client.on_message("group")
-        async def _handle_group(data: Dict[str, Any]) -> None:
+        async def _handle_group(data: dict[str, Any]) -> None:
             try:
                 event: GroupMessageEvent = GroupMessageEvent.from_dict(data)
                 self._fire_task(self._print_group_message(event))
@@ -88,7 +89,7 @@ class BotClient:
                 logger.error(f"处理群消息时出错: {e}", exc_info=True)
 
         @self.client.on_message("private")
-        async def _handle_private(data: Dict[str, Any]) -> None:
+        async def _handle_private(data: dict[str, Any]) -> None:
             try:
                 event: PrivateMessageEvent = PrivateMessageEvent.from_dict(data)
                 self._fire_task(self._print_private_message(event))
@@ -98,7 +99,7 @@ class BotClient:
                 logger.error(f"处理私聊消息时出错: {e}", exc_info=True)
 
         @self.client.on_message("notice")
-        async def _handle_notice(data: Dict[str, Any]) -> None:
+        async def _handle_notice(data: dict[str, Any]) -> None:
             try:
                 event: NoticeEvent = NoticeEvent.from_dict(data)
                 await self.event_bus.publish(event)
@@ -107,7 +108,7 @@ class BotClient:
                 logger.error(f"处理通知事件时出错: {e}", exc_info=True)
 
         @self.client.on_message("request")
-        async def _handle_request(data: Dict[str, Any]) -> None:
+        async def _handle_request(data: dict[str, Any]) -> None:
             try:
                 event: RequestEvent = RequestEvent.from_dict(data)
                 await self.event_bus.publish(event)
@@ -116,7 +117,7 @@ class BotClient:
                 logger.error(f"处理请求事件时出错: {e}", exc_info=True)
 
         @self.client.on_message("meta_event")
-        async def _handle_meta_event(data: Dict[str, Any]) -> None:
+        async def _handle_meta_event(data: dict[str, Any]) -> None:
             try:
                 event: MetaEvent = MetaEvent.from_dict(data)
                 await self.event_bus.publish(event)
@@ -141,7 +142,7 @@ class BotClient:
             logger.error(f"后台任务异常: {exc}", exc_info=exc)
 
     def _dispatch_to_handlers(
-        self, event: Any, handlers: List[Callable[..., Any]]
+        self, event: Any, handlers: list[Callable[..., Any]]
     ) -> None:
         """将事件分发给处理器列表，追踪任务并捕获异常"""
         for handler in handlers:
@@ -251,7 +252,7 @@ class BotClient:
         """
         return self.hot_reload_manager.register_plugin(plugin)
 
-    async def load_plugins(self) -> List[str]:
+    async def load_plugins(self) -> list[str]:
         """使用热重载管理器从插件目录加载所有插件
 
         Returns:
@@ -308,7 +309,7 @@ class BotClient:
 
             # 加载插件（使用热重载管理器）
             if load_plugins:
-                loaded: List[str] = await self.hot_reload_manager.load_all_plugins(
+                loaded: list[str] = await self.hot_reload_manager.load_all_plugins(
                     self.api, self.event_bus
                 )
                 logger.info(f"成功加载 {len(loaded)} 个插件: {', '.join(loaded) if loaded else '无'}")
@@ -386,7 +387,10 @@ class BotClient:
             loop = asyncio.get_running_loop()
             if loop.is_running():
                 # 如果在 Jupyter 等已有事件循环的环境中，创建后台任务
-                asyncio.create_task(self.run_frontend(debug=debug, load_plugins=load_plugins))
+                # 走 _fire_task 以持有引用，避免任务被 GC 回收后静默消失
+                self._fire_task(
+                    self.run_frontend(debug=debug, load_plugins=load_plugins)
+                )
                 return
         except RuntimeError:
             pass

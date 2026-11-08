@@ -5,11 +5,12 @@ YAML 配置管理、环境变量加载与日志系统，全部采用强类型声
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, TypeAlias
+from typing import Any, TypeAlias
 
 import yaml
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ _env_path: Path = Path(__file__).parent.parent / ".env"
 load_dotenv(_env_path)
 
 # ---- 类型别名 ----
-YamlConfig: TypeAlias = Dict[str, Any]
+YamlConfig: TypeAlias = dict[str, Any]
 
 
 class ConfigError(RuntimeError):
@@ -67,7 +68,7 @@ class ConfigManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 loaded: Any = yaml.safe_load(f)
         except Exception as e:
             self.config = {}
@@ -173,7 +174,7 @@ class ConfigManager:
             value: 配置值
         """
         keys: list[str] = key.split(".")
-        current: Dict[str, Any] = self.config
+        current: dict[str, Any] = self.config
 
         for index, k in enumerate(keys[:-1]):
             child: Any = current.get(k)
@@ -262,7 +263,7 @@ class ConfigManager:
     # ==================== API 超时配置 ====================
 
     @staticmethod
-    def _coerce_timeout(raw: Any) -> Optional[float]:
+    def _coerce_timeout(raw: Any) -> float | None:
         """把配置值转为正数超时秒数，非法值返回 None
 
         支持 int/float 及数字字符串；非正数或无法转换的值会记警告并忽略。
@@ -304,7 +305,7 @@ class ConfigManager:
         if isinstance(base, dict):
             raw = base.get(action, base.get("default"))
 
-        value: Optional[float] = self._coerce_timeout(raw)
+        value: float | None = self._coerce_timeout(raw)
         return value if value is not None else default
 
     # ==================== NapCat 配置 ====================
@@ -399,7 +400,7 @@ class Config:
     BOT_DEBUG: bool = os.getenv("BOT_DEBUG", "false").lower() == "true"
 
     @classmethod
-    def reload_env(cls, env_file: Optional[str] = None) -> None:
+    def reload_env(cls, env_file: str | None = None) -> None:
         """重新加载环境变量（热更新用）
 
         Args:
@@ -450,9 +451,9 @@ _logging_setup_done: bool = False
 
 
 def setup_logging(
-    log_level: Optional[str] = None,
-    log_dir: Optional[str] = None,
-    log_file: Optional[str] = None,
+    log_level: str | None = None,
+    log_dir: str | None = None,
+    log_file: str | None = None,
     backup_count: int = 30,
     force: bool = False,
 ) -> None:
@@ -477,10 +478,8 @@ def setup_logging(
     # force 重建前先关闭旧处理器，避免文件句柄泄漏（Windows 下尤其明显）
     for handler in list(root.handlers):
         root.removeHandler(handler)
-        try:
+        with contextlib.suppress(Exception):
             handler.close()
-        except Exception:
-            pass
 
     _logging_setup_done = True
 

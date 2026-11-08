@@ -5,7 +5,7 @@
 与 PluginBase 的生命周期 (on_load / on_unload) 无缝配合：
   - on_load()    订阅事件到 EventBus，创建后台任务
   - on_unload()  取消所有事件订阅，取消所有后台任务
-  
+
 支持文件监控自动热重载：
   - 监控插件目录下的 .py 文件变化
   - 文件修改后自动触发重载（带防抖）
@@ -20,18 +20,18 @@ import importlib.metadata
 import importlib.util
 import json
 import logging
-import re
 import sys
 import time
 import types
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from packaging.requirements import Requirement
-from packaging.version import Version, InvalidVersion
+from packaging.version import InvalidVersion, Version
 
 try:
+    from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileSystemEventHandler
     from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
@@ -68,27 +68,27 @@ class HotReloadPluginManager:
 
     def __init__(self, plugin_dir: str = "plugins") -> None:
         self.plugin_dir: Path = Path(plugin_dir)
-        self.plugins: Dict[str, PluginBase] = {}
-        self.plugin_modules: Dict[str, object] = {}
-        self._api: Optional[Any] = None
-        self._event_bus: Optional[Any] = None
+        self.plugins: dict[str, PluginBase] = {}
+        self.plugin_modules: dict[str, object] = {}
+        self._api: Any | None = None
+        self._event_bus: Any | None = None
 
         # 文件监控相关
-        self._observer: Optional[Any] = None
-        self._debounce_tasks: Dict[str, asyncio.Task] = {}
+        self._observer: Any | None = None
+        self._debounce_tasks: dict[str, asyncio.Task] = {}
         self._debounce_delay: float = 0.5  # 防抖延迟（秒）
         self._file_watcher_enabled: bool = False
-        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
-        self._load_tasks: Dict[str, asyncio.Task] = {}
+        self._main_loop: asyncio.AbstractEventLoop | None = None
+        self._load_tasks: dict[str, asyncio.Task] = {}
 
         # 每个插件一把生命周期锁：串行化同一插件的 load/unload/reload，
         # 避免并发请求各自观察到插件不存在而重复注册（留下订阅 EventBus 的孤儿实例）
-        self._locks: Dict[str, asyncio.Lock] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
 
         # 在途的 load/reload 任务 (plugin_name -> 任务集合)。这些插件尚未登记进
         # self.plugins，unload/unload_all 必须能发现并取消它们，否则插件会在
         # 关机流程之后才完成注册并继续处理消息
-        self._loading: Dict[str, set] = {}
+        self._loading: dict[str, set] = {}
 
         # 将插件根目录的父目录（项目根目录）加入 sys.path，
         # 使 plugins.xxx 形式的包导入能正常工作
@@ -104,7 +104,7 @@ class HotReloadPluginManager:
             sys.modules["plugins"] = plugins_pkg
 
         # 插件配置缓存
-        self._plugin_configs: Dict[str, Dict[str, Any]] = {}
+        self._plugin_configs: dict[str, dict[str, Any]] = {}
 
         # 设置插件管理器引用，让插件可以访问管理器
         PluginBase._plugin_manager = self
@@ -123,7 +123,7 @@ class HotReloadPluginManager:
             return False
         return bool(cls._MANIFEST_MARKER_KEYS & config.keys())
 
-    def _load_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
+    def _load_plugin_config(self, plugin_name: str) -> dict[str, Any]:
         """加载插件配置 (plugin.json，缺失时回退到清单式 config.json)
 
         Args:
@@ -154,7 +154,7 @@ class HotReloadPluginManager:
             using_fallback = True
 
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
             # config.json 可能是普通数据配置而非清单，只有确实含清单键时才采用
             if using_fallback and not self._looks_like_manifest(config):
@@ -169,7 +169,7 @@ class HotReloadPluginManager:
             logger.warning(f"加载插件配置 {plugin_name} 失败: {e}，使用默认配置")
             return default_config
 
-    def _check_dependencies(self, plugin_name: str, dependencies: List[str]) -> bool:
+    def _check_dependencies(self, plugin_name: str, dependencies: list[str]) -> bool:
         """检查插件依赖是否满足（含版本校验）
 
         Args:
@@ -182,7 +182,7 @@ class HotReloadPluginManager:
         if not dependencies:
             return True
 
-        unsatisfied: List[str] = []
+        unsatisfied: list[str] = []
         for dep in dependencies:
             # 解析包名和版本要求
             try:
@@ -222,7 +222,7 @@ class HotReloadPluginManager:
 
     # ==================== 注册 / 加载 / 重载 / 卸载 ====================
 
-    def register_plugin(self, plugin: PluginBase, plugin_dir: Optional[Path] = None) -> bool:
+    def register_plugin(self, plugin: PluginBase, plugin_dir: Path | None = None) -> bool:
         """注册已实例化的插件（用于直接提供插件对象而非从文件加载）
 
         这个方法允许将外部创建的插件实例注册到管理器中，
@@ -283,14 +283,14 @@ class HotReloadPluginManager:
             self._locks[plugin_name] = lock
         return lock
 
-    def _track_loading(self, plugin_name: str) -> Optional[asyncio.Task]:
+    def _track_loading(self, plugin_name: str) -> asyncio.Task | None:
         """把当前任务登记为该插件的在途 load/reload 任务"""
         task = asyncio.current_task()
         if task is not None:
             self._loading.setdefault(plugin_name, set()).add(task)
         return task
 
-    def _untrack_loading(self, plugin_name: str, task: Optional[asyncio.Task]) -> None:
+    def _untrack_loading(self, plugin_name: str, task: asyncio.Task | None) -> None:
         if task is None:
             return
         tasks = self._loading.get(plugin_name)
@@ -388,7 +388,7 @@ class HotReloadPluginManager:
             spec.loader.exec_module(module)
 
             # 查找继承 PluginBase 的类（跳过基类本身）
-            plugin_class: Optional[type] = None
+            plugin_class: type | None = None
             for attr_name in dir(module):
                 attr: Any = getattr(module, attr_name)
                 if (
@@ -540,7 +540,7 @@ class HotReloadPluginManager:
 
     # ==================== 批量操作 ====================
 
-    async def load_all_plugins(self, api: Any, event_bus: Any) -> List[str]:
+    async def load_all_plugins(self, api: Any, event_bus: Any) -> list[str]:
         """从插件目录加载所有插件
 
         扫描 self.plugin_dir 下每个子目录中的 main.py，
@@ -558,7 +558,7 @@ class HotReloadPluginManager:
         self._event_bus = event_bus
 
         self._main_loop = asyncio.get_running_loop()
-        loaded_names: List[str] = []
+        loaded_names: list[str] = []
         if not self.plugin_dir.exists():
             logger.warning(f"插件目录不存在: {self.plugin_dir}")
             return loaded_names
@@ -594,7 +594,7 @@ class HotReloadPluginManager:
 
     # ==================== 查询 ====================
 
-    def get_plugin(self, name: str) -> Optional[PluginBase]:
+    def get_plugin(self, name: str) -> PluginBase | None:
         """获取已加载的插件实例
 
         Args:
@@ -605,7 +605,7 @@ class HotReloadPluginManager:
         """
         return self.plugins.get(name)
 
-    def get_all_plugins(self) -> Dict[str, PluginBase]:
+    def get_all_plugins(self) -> dict[str, PluginBase]:
         """获取所有已加载的插件实例
 
         Returns:
@@ -724,7 +724,7 @@ class HotReloadPluginManager:
         logger.info("文件监控已停止")
         _print_reload_status("系统", "文件监控已停止")
 
-    def _get_plugin_name_from_path(self, file_path: str) -> Optional[str]:
+    def _get_plugin_name_from_path(self, file_path: str) -> str | None:
         """从文件路径提取插件名称
 
         Args:
@@ -819,9 +819,7 @@ if HAS_WATCHDOG:
             if not path.endswith(".py"):
                 return True
             # 忽略 __init__.py（避免循环导入问题）
-            if path.endswith("__init__.py"):
-                return True
-            return False
+            return path.endswith("__init__.py")
 
         def on_modified(self, event: Any) -> None:
             """文件修改事件"""

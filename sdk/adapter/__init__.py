@@ -11,10 +11,10 @@ from .backends import BACKENDS, DEFAULT_BACKEND, BackendSpec, get_backend
 from .resolver import AdapterResolver, ConfigLike
 
 __all__: list[str] = [
-    "BackendSpec",
     "BACKENDS",
     "DEFAULT_BACKEND",
-    "get_backend",
     "AdapterResolver",
+    "BackendSpec",
     "ConfigLike",
+    "get_backend",
 ]

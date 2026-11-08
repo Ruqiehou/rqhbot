@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib.util
 import json
 import logging
@@ -13,27 +14,28 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
 from pathlib import Path
-from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeAlias, TypeVar
+from typing import Any, TypeVar
 
 try:
     from ..config import setup_logging
-    from ..core.interfaces import IClient
-    from ..core.events import GroupMessageEvent, PrivateMessageEvent, NoticeEvent, RequestEvent
     from ..core.event_bus import EventBus
+    from ..core.events import GroupMessageEvent, NoticeEvent, PrivateMessageEvent, RequestEvent
+    from ..core.interfaces import IClient
 except ImportError:
     from sdk.config import setup_logging
-    from sdk.core.interfaces import IClient
-    from sdk.core.events import GroupMessageEvent, PrivateMessageEvent, NoticeEvent, RequestEvent
     from sdk.core.event_bus import EventBus
+    from sdk.core.events import GroupMessageEvent, NoticeEvent, PrivateMessageEvent, RequestEvent
+    from sdk.core.interfaces import IClient
 
 setup_logging()
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-PluginConfig = Dict[str, Any]
+PluginConfig = dict[str, Any]
 F = TypeVar("F", bound=Callable[..., Any])
 MessageFilter = Callable[[Any], bool]
 MessageHandler = Callable[..., Coroutine[Any, Any, None]]
@@ -44,14 +46,14 @@ class MessageFilterRule:
         self,
         message_type: str,
         *,
-        keyword: Optional[str] = None,
-        keywords: Optional[List[str]] = None,
-        prefix: Optional[str] = None,
-        prefixes: Optional[List[str]] = None,
-        equals: Optional[str] = None,
-        contains: Optional[str] = None,
-        regex: Optional[str] = None,
-        custom: Optional[MessageFilter] = None,
+        keyword: str | None = None,
+        keywords: list[str] | None = None,
+        prefix: str | None = None,
+        prefixes: list[str] | None = None,
+        equals: str | None = None,
+        contains: str | None = None,
+        regex: str | None = None,
+        custom: MessageFilter | None = None,
     ) -> None:
         self.message_type = message_type
         self.keyword = keyword
@@ -87,17 +89,16 @@ class MessageFilterRule:
         if self.regex is not None and self.regex.search(text) is None:
             return False
 
-        if self.custom is not None and not self.custom(event):
-            return False
-
-        return True
+        return self.custom is None or self.custom(event)
 
 
-def _message_filter_decorator(message_type: str, **filters: Any) -> Callable[[MessageHandler], MessageHandler]:
+def _message_filter_decorator(
+    message_type: str, **filters: Any
+) -> Callable[[MessageHandler], MessageHandler]:
     def decorator(func: MessageHandler) -> MessageHandler:
-        rules: List[MessageFilterRule] = list(getattr(func, "_rqhbot_message_filters", []))
+        rules: list[MessageFilterRule] = list(getattr(func, "_rqhbot_message_filters", []))
         rules.append(MessageFilterRule(message_type, **filters))
-        setattr(func, "_rqhbot_message_filters", rules)
+        func._rqhbot_message_filters = rules
         return func
     return decorator
 
@@ -115,13 +116,13 @@ def message_filter(message_type: str, **filters: Any) -> Callable[[MessageHandle
 
 
 class FilterRegistry:
-    def group_server(self, func: Optional[MessageHandler] = None, **filters: Any) -> Any:
+    def group_server(self, func: MessageHandler | None = None, **filters: Any) -> Any:
         decorator = group_server(**filters)
         if func is None:
             return decorator
         return decorator(func)
 
-    def private_server(self, func: Optional[MessageHandler] = None, **filters: Any) -> Any:
+    def private_server(self, func: MessageHandler | None = None, **filters: Any) -> Any:
         decorator = private_server(**filters)
         if func is None:
             return decorator
@@ -148,16 +149,16 @@ class PluginBase:
         self.description: str = ""
         self.author: str = "Unknown"
         self.enabled: bool = True
-        self.api: Optional[IClient] = None
-        self.event_bus: Optional[EventBus] = None
-        self._tasks: List[asyncio.Task[Any]] = []
+        self.api: IClient | None = None
+        self.event_bus: EventBus | None = None
+        self._tasks: list[asyncio.Task[Any]] = []
         self._executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=1)
-        self._config_cache: Dict[str, PluginConfig] = {}
-        self._config_cache_time: Dict[str, float] = {}
+        self._config_cache: dict[str, PluginConfig] = {}
+        self._config_cache_time: dict[str, float] = {}
         self._config_ttl: float = 600.0
-        self._plugin_dir: Optional[Path] = None
+        self._plugin_dir: Path | None = None
         self._unloading: bool = False
-        self._message_handlers: Dict[str, List[Dict[str, Any]]] = {
+        self._message_handlers: dict[str, list[dict[str, Any]]] = {
             "group": [],
             "private": [],
         }
@@ -184,12 +185,12 @@ class PluginBase:
 
     # ==================== 路径解析 ====================
 
-    def _resolve_plugin_dir(self, bot: Optional[Any] = None) -> Path:
+    def _resolve_plugin_dir(self, bot: Any | None = None) -> Path:
         """解析当前插件真实目录"""
         if self._plugin_dir is not None:
             return self._plugin_dir
 
-        module_file: Optional[str] = getattr(
+        module_file: str | None = getattr(
             sys.modules.get(self.__class__.__module__), "__file__", None
         )
         if module_file:
@@ -218,10 +219,8 @@ class PluginBase:
             os.replace(tmp_path, path)
         except BaseException:
             # 失败时清掉临时文件，避免污染插件目录
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
             raise
 
     # ==================== 过滤器注册 ====================
@@ -266,7 +265,7 @@ class PluginBase:
 
     # ==================== 生命周期 ====================
 
-    async def on_load(self, api: IClient, event_bus: EventBus, plugin_dir: Optional[Path] = None) -> None:
+    async def on_load(self, api: IClient, event_bus: EventBus, plugin_dir: Path | None = None) -> None:
         """插件加载时调用
 
         Args:
@@ -303,7 +302,7 @@ class PluginBase:
             self._release_plugin_resources()
             logger.info(f"插件 {self.name} 已卸载")
 
-    def _resolve_on_unload_impl(self) -> Optional[Callable[[Any], Coroutine[Any, Any, Any]]]:
+    def _resolve_on_unload_impl(self) -> Callable[[Any], Coroutine[Any, Any, Any]] | None:
         """查找子类通过 __init_subclass__ 登记的 on_unload 实现"""
         for klass in type(self).__mro__:
             impl = klass.__dict__.get("_on_unload_impl")
@@ -392,7 +391,7 @@ class PluginBase:
         return task
 
     async def load_config(
-        self, config_name: str = "config.json", bot: Optional[Any] = None
+        self, config_name: str = "config.json", bot: Any | None = None
     ) -> PluginConfig:
         """异步加载插件配置（带缓存）
 
@@ -416,7 +415,7 @@ class PluginBase:
 
         if config_path.exists():
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     data: PluginConfig = json.load(f)
                 self._config_cache[cache_key] = dict(data)
                 self._config_cache_time[cache_key] = now
@@ -430,7 +429,7 @@ class PluginBase:
         self,
         config: PluginConfig,
         config_name: str = "config.json",
-        bot: Optional[Any] = None,
+        bot: Any | None = None,
     ) -> bool:
         """异步保存插件配置
 
@@ -487,7 +486,7 @@ class PluginBase:
             return await self.run_in_executor(func, *args, **kwargs)
         return wrapper
 
-    async def get_plugin_stats(self) -> Dict[str, Any]:
+    async def get_plugin_stats(self) -> dict[str, Any]:
         """获取插件统计信息
 
         Returns:
@@ -501,9 +500,9 @@ class PluginBase:
 
     async def safe_save_data(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         filename: str,
-        bot: Optional[Any] = None,
+        bot: Any | None = None,
     ) -> bool:
         """安全保存数据到文件
 
@@ -528,9 +527,9 @@ class PluginBase:
     async def safe_load_data(
         self,
         filename: str,
-        default: Optional[Dict[str, Any]] = None,
-        bot: Optional[Any] = None,
-    ) -> Dict[str, Any]:
+        default: dict[str, Any] | None = None,
+        bot: Any | None = None,
+    ) -> dict[str, Any]:
         """安全从文件加载数据
 
         Args:
@@ -546,7 +545,7 @@ class PluginBase:
             file_path: Path = plugin_dir / filename
             if not file_path.exists():
                 return default if default is not None else {}
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"加载数据失败: {e}")
@@ -563,12 +562,12 @@ class PluginBase:
     # ==================== 消息分发（兼容旧接口，已废弃） ====================
 
     async def handle_message_dispatch(
-        self, bot: Any, message: Dict[str, Any]
+        self, bot: Any, message: dict[str, Any]
     ) -> None:
         """兼容旧接口，已废弃。新插件请重写 on_group_message / on_private_message。"""
         pass
 
-    async def reply(self, message: Dict[str, Any], content: str) -> None:
+    async def reply(self, message: dict[str, Any], content: str) -> None:
         """回复消息（根据消息类型自动选择发送方式）
 
         Args:
@@ -607,21 +606,21 @@ class PluginBase:
 
 class PluginManager:
     """插件管理器 —— 负责插件的注册、加载与卸载。
-    
+
     只依赖 IClient 和 EventBus，不持有 BotClient 引用。
     """
 
     def __init__(self, api: IClient, event_bus: EventBus) -> None:
         self.api: IClient = api
         self.event_bus: EventBus = event_bus
-        self.plugins: Dict[str, PluginBase] = {}
-        self._loaded_plugins: List[str] = []
-        self._load_tasks: Dict[str, asyncio.Task[Any]] = {}
+        self.plugins: dict[str, PluginBase] = {}
+        self._loaded_plugins: list[str] = []
+        self._load_tasks: dict[str, asyncio.Task[Any]] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     # ==================== 后台任务 ====================
 
-    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> Optional[asyncio.Task[Any]]:
+    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any] | None:
         """在当前事件循环中创建任务并持有强引用
 
         必须持有引用，否则任务可能被 GC 提前回收；同时统一取回异常，
@@ -644,13 +643,13 @@ class PluginManager:
         self._background_tasks.discard(task)
         if task.cancelled():
             return
-        exc: Optional[BaseException] = task.exception()
+        exc: BaseException | None = task.exception()
         if exc is not None:
             logger.error(f"插件后台任务异常: {exc}", exc_info=exc)
 
     # ==================== 注册 / 注销 ====================
 
-    def register_plugin(self, plugin: PluginBase, plugin_dir: Optional[Path] = None) -> bool:
+    def register_plugin(self, plugin: PluginBase, plugin_dir: Path | None = None) -> bool:
         """注册插件
 
         Args:
@@ -696,7 +695,7 @@ class PluginManager:
         if task.cancelled():
             logger.warning(f"插件 {pname} 加载被取消，清理可能已建立的订阅")
         else:
-            exc: Optional[BaseException] = task.exception()
+            exc: BaseException | None = task.exception()
             if exc is None:
                 return
             logger.error(f"插件 {pname} 加载失败: {exc}", exc_info=exc)
@@ -732,7 +731,7 @@ class PluginManager:
         plugin: PluginBase = self.plugins[pname]
 
         # 1. 取消仍在进行中的加载：否则加载会在注销完成后才订阅事件，留下僵尸
-        load_task: Optional[asyncio.Task[Any]] = self._load_tasks.pop(pname, None)
+        load_task: asyncio.Task[Any] | None = self._load_tasks.pop(pname, None)
         if load_task is not None and not load_task.done():
             load_task.cancel()
 
@@ -755,7 +754,7 @@ class PluginManager:
 
     # ==================== 加载 ====================
 
-    def load_plugin_from_file(self, plugin_path: str) -> Optional[PluginBase]:
+    def load_plugin_from_file(self, plugin_path: str) -> PluginBase | None:
         """从文件加载插件
 
         Args:
@@ -810,7 +809,7 @@ class PluginManager:
             logger.error(f"加载插件失败: {e}")
             return None
 
-    async def load_plugins_from_dir_async(self, plugins_dir: str) -> List[str]:
+    async def load_plugins_from_dir_async(self, plugins_dir: str) -> list[str]:
         """从目录异步加载所有插件
 
         Args:
@@ -819,7 +818,7 @@ class PluginManager:
         Returns:
             成功加载的插件名称列表
         """
-        loaded: List[str] = []
+        loaded: list[str] = []
         plugins_path: Path = Path(plugins_dir)
 
         if not plugins_path.exists():
@@ -828,7 +827,7 @@ class PluginManager:
 
         for plugin_file in plugins_path.glob("*/main.py"):
             try:
-                plugin: Optional[PluginBase] = self.load_plugin_from_file(
+                plugin: PluginBase | None = self.load_plugin_from_file(
                     str(plugin_file)
                 )
                 if plugin and self.register_plugin(plugin, plugin._plugin_dir):
@@ -841,11 +840,11 @@ class PluginManager:
 
     # ==================== 查询 ====================
 
-    def get_all_plugins(self) -> Dict[str, PluginBase]:
+    def get_all_plugins(self) -> dict[str, PluginBase]:
         """获取所有已注册的插件"""
         return self.plugins
 
-    def get_plugin(self, plugin_name: str) -> Optional[PluginBase]:
+    def get_plugin(self, plugin_name: str) -> PluginBase | None:
         """获取指定插件"""
         return self.plugins.get(plugin_name.lower())
 
