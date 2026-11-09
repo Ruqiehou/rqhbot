@@ -13,13 +13,17 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 
 from sdk.config.config import ConfigManager
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 VALID_CONFIG = (
     "napcat:\n"
@@ -73,10 +77,8 @@ class TestSaveLoadRoundTrip:
         cfg = _write(tmp_path / "config.yaml", POISONED_CONFIG)
         manager = ConfigManager(str(cfg))
 
-        try:
+        with contextlib.suppress(Exception):
             manager.set_bot_uin("999")
-        except Exception:  # noqa: BLE001 - 允许显式报错，但不允许静默覆盖
-            pass
 
         raw = cfg.read_text(encoding="utf-8")
         assert "ws_url" in raw and "load_plugins" in raw, (
@@ -112,7 +114,7 @@ class TestSaveLoadRoundTrip:
         raised: BaseException | None = None
         try:
             manager.save()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raised = exc
 
         raw = cfg.read_text(encoding="utf-8")

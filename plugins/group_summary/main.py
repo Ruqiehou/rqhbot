@@ -3,9 +3,10 @@ import json
 import logging
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from sdk.core.events import GroupMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
@@ -108,7 +109,7 @@ class GroupSummaryPlugin(PluginBase):
             return 1
         return max(1, min(int(match.group(1)), 30))
 
-    def _iter_records(self, group_id: str, days: int) -> Iterable[Dict[str, Any]]:
+    def _iter_records(self, group_id: str, days: int) -> Iterable[dict[str, Any]]:
         today = datetime.now().date()
         start_date = today - timedelta(days=days - 1)
         for i in range(days):
@@ -116,7 +117,7 @@ class GroupSummaryPlugin(PluginBase):
             file_path = self.data_dir / f"{day.strftime('%Y-%m-%d')}.jsonl"
             if not file_path.exists():
                 continue
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -186,7 +187,7 @@ class GroupSummaryPlugin(PluginBase):
         topic_counter = Counter(self._classify_topic(text) for text in messages)
         word_counter = Counter()
         hour_counter = Counter()
-        for row, text in zip(records, messages):
+        for row, text in zip(records, messages, strict=False):
             word_counter.update(self._extract_words(text))
             hour_counter[datetime.fromtimestamp(int(row.get("timestamp", 0))).hour] += 1
         style = self._analyze_style(messages)
@@ -223,11 +224,11 @@ class GroupSummaryPlugin(PluginBase):
             return "链接资料"
         return "闲聊杂谈"
 
-    def _extract_words(self, text: str) -> List[str]:
+    def _extract_words(self, text: str) -> list[str]:
         words = re.findall(r"[A-Za-z0-9_]{2,}|[\u4e00-\u9fff]{2,4}", text)
         return [word for word in words if word not in self.stop_words and not word.isdigit()]
 
-    def _analyze_style(self, messages: List[str]) -> str:
+    def _analyze_style(self, messages: list[str]) -> str:
         if not messages:
             return "暂无足够样本"
         joined = "\n".join(messages)
@@ -251,7 +252,7 @@ class GroupSummaryPlugin(PluginBase):
             traits.append("技术话题倾向")
         return "、".join(traits)
 
-    def _build_user_style_lines(self, top_users: List[Tuple[str, Dict[str, Any]]]) -> List[str]:
+    def _build_user_style_lines(self, top_users: list[tuple[str, dict[str, Any]]]) -> list[str]:
         lines = []
         for user_id, stat in top_users:
             messages = stat["messages"]
@@ -259,12 +260,12 @@ class GroupSummaryPlugin(PluginBase):
             lines.append(f"- {stat['name']}（{user_id}）：{style}")
         return lines or ["- 暂无足够样本"]
 
-    def _build_overall_comment(self, records: List[Dict[str, Any]], topic_counter: Counter, user_stats: Dict[str, Dict[str, Any]]) -> str:
+    def _build_overall_comment(self, records: list[dict[str, Any]], topic_counter: Counter, user_stats: dict[str, dict[str, Any]]) -> str:
         main_topic = topic_counter.most_common(1)[0][0] if topic_counter else "闲聊杂谈"
         most_active = max(user_stats.values(), key=lambda stat: stat["count"])
         return f"本时段群聊以“{main_topic}”为主，{most_active['name']} 发言最活跃。整体互动量为 {len(records)} 条，可继续观察高频主题变化。"
 
-    def _select_examples(self, messages: List[str]) -> List[str]:
+    def _select_examples(self, messages: list[str]) -> list[str]:
         cleaned = [text.replace("\n", " ") for text in messages if len(text.strip()) >= 2]
         cleaned.sort(key=len, reverse=True)
         return cleaned[:3] or ["暂无代表发言"]

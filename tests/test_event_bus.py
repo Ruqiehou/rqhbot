@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import List
-
 import pytest
 
 from sdk.core.event_bus import EventBus
-from sdk.core.events import BaseEvent, GroupMessageEvent
+from sdk.core.events import GroupMessageEvent
 
 
 @pytest.mark.asyncio
 async def test_subscribe_and_publish() -> None:
     """测试订阅和发布"""
     bus = EventBus()
-    received: List[GroupMessageEvent] = []
+    received: list[GroupMessageEvent] = []
 
     async def handler(event: GroupMessageEvent) -> None:
         received.append(event)
@@ -33,7 +30,7 @@ async def test_subscribe_and_publish() -> None:
 async def test_unsubscribe() -> None:
     """测试取消订阅"""
     bus = EventBus()
-    received: List[GroupMessageEvent] = []
+    received: list[GroupMessageEvent] = []
 
     async def handler(event: GroupMessageEvent) -> None:
         received.append(event)
@@ -51,7 +48,7 @@ async def test_unsubscribe() -> None:
 async def test_multiple_handlers() -> None:
     """测试多个处理器"""
     bus = EventBus()
-    results: List[str] = []
+    results: list[str] = []
 
     async def handler1(event: GroupMessageEvent) -> None:
         results.append("h1")
@@ -72,7 +69,7 @@ async def test_multiple_handlers() -> None:
 async def test_handler_error_does_not_break_others() -> None:
     """测试处理器异常不影响其他处理器"""
     bus = EventBus()
-    received: List[str] = []
+    received: list[str] = []
 
     async def bad_handler(event: GroupMessageEvent) -> None:
         raise ValueError("test error")

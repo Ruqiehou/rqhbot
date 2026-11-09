@@ -9,7 +9,6 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -42,18 +41,18 @@ class GameSession:
     group_id: int
     active: bool = False
     original_image_path: str = ""
-    tiles: List[Image.Image] = field(default_factory=list)
-    arrangement: List[int] = field(default_factory=lambda: CORRECT_ORDER.copy())
-    scores: Dict[str, int] = field(default_factory=dict)
-    scored_positions: Dict[str, set] = field(default_factory=dict)
-    piece_size: Tuple[int, int] = (0, 0)
+    tiles: list[Image.Image] = field(default_factory=list)
+    arrangement: list[int] = field(default_factory=lambda: CORRECT_ORDER.copy())
+    scores: dict[str, int] = field(default_factory=dict)
+    scored_positions: dict[str, set] = field(default_factory=dict)
+    piece_size: tuple[int, int] = (0, 0)
 
 
 class GameService:
     """拼图游戏服务 —— 纯逻辑，不持有 api 引用"""
 
     def __init__(self) -> None:
-        self.games: Dict[int, GameSession] = {}
+        self.games: dict[int, GameSession] = {}
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
     def get_session(self, group_id: int) -> GameSession:
@@ -61,7 +60,7 @@ class GameService:
             self.games[group_id] = GameSession(group_id=group_id)
         return self.games[group_id]
 
-    def choose_image(self) -> Optional[Path]:
+    def choose_image(self) -> Path | None:
         if not IMAGE_DIR.exists():
             return None
         images = [
@@ -72,7 +71,7 @@ class GameService:
             return None
         return random.choice(images)
 
-    def load_tiles(self, image_path: Path) -> Tuple[List[Image.Image], Tuple[int, int]]:
+    def load_tiles(self, image_path: Path) -> tuple[list[Image.Image], tuple[int, int]]:
         with Image.open(image_path) as image:
             image = image.convert("RGB")
             width, height = image.size
@@ -94,7 +93,7 @@ class GameService:
         session.arrangement = arrangement
 
     @staticmethod
-    def count_correct_tiles(arrangement: List[int]) -> int:
+    def count_correct_tiles(arrangement: list[int]) -> int:
         return sum(1 for index, tile in enumerate(arrangement, 1) if index == tile)
 
     def save_puzzle_image(self, session: GameSession) -> Path:
@@ -156,7 +155,7 @@ class GameService:
         return ImageFont.load_default()
 
     @staticmethod
-    def parse_swap(text: str) -> Optional[Tuple[int, int]]:
+    def parse_swap(text: str) -> tuple[int, int] | None:
         match = re.fullmatch(r"(\d)\s*换\s*(\d)", text)
         if not match:
             match = re.fullmatch(r"交换\s+(\d)\s+(\d)", text)
@@ -165,7 +164,7 @@ class GameService:
         return int(match.group(1)), int(match.group(2))
 
     @staticmethod
-    def extract_target_user_id(text: str, prefix: str, event_segments: list) -> Optional[str]:
+    def extract_target_user_id(text: str, prefix: str, event_segments: list) -> str | None:
         """从 @ 消息段或前缀后文本中提取目标用户 ID"""
         for seg in event_segments:
             if seg.get("type") == "at":
@@ -178,17 +177,17 @@ class GameService:
     # ---------- 管理员包装 ----------
 
     @staticmethod
-    def is_admin(user_id: int, group_id: Optional[int] = None) -> bool:
+    def is_admin(user_id: int, group_id: int | None = None) -> bool:
         return is_puzzle_admin(user_id, group_id)
 
     @staticmethod
-    def get_admins(group_id: Optional[int] = None) -> List[str]:
+    def get_admins(group_id: int | None = None) -> list[str]:
         return get_admins(group_id)
 
     @staticmethod
-    def add_admin(user_id: str, group_id: Optional[int] = None) -> bool:
+    def add_admin(user_id: str, group_id: int | None = None) -> bool:
         return add_admin(user_id, group_id)
 
     @staticmethod
-    def remove_admin(user_id: str, group_id: Optional[int] = None) -> bool:
+    def remove_admin(user_id: str, group_id: int | None = None) -> bool:
         return remove_admin(user_id, group_id)

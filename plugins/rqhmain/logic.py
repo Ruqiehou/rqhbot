@@ -5,7 +5,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from sdk.core import MessageSegment
 
@@ -18,7 +18,7 @@ def _load_json_resource(name: str) -> Any:
     base = Path(__file__).resolve().parent
     path = base / name
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         logger.warning("资源 %s 加载失败", name)
@@ -37,7 +37,7 @@ except Exception:
 
 # ==================== 运势逻辑 ====================
 
-def build_fortune_segments() -> List[Dict[str, Any]]:
+def build_fortune_segments() -> list[dict[str, Any]]:
     """构建运势图文消息段"""
     if not isinstance(CSYS, list) or not CSYS:
         return [MessageSegment.text("运势数据加载失败，请稍后重试")]
@@ -59,7 +59,7 @@ def build_fortune_segments() -> List[Dict[str, Any]]:
         type_ = fortune.get("type", "")
         desc = fortune.get("desc", "")
 
-    segments: List[Dict[str, Any]] = [
+    segments: list[dict[str, Any]] = [
         MessageSegment.text("✨ 今日运势\n\n"),
     ]
     if stars and type_:
@@ -86,7 +86,7 @@ def build_fortune_segments() -> List[Dict[str, Any]]:
 
 # ==================== 天气逻辑 ====================
 
-def build_weather_segments(city: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_weather_segments(city: str, data: dict[str, Any]) -> list[dict[str, Any]]:
     lines = [f"📍 {city} 当前天气"]
     if "temp" in data:
         lines.append(f"温度: {data['temp']}°C")
@@ -100,7 +100,7 @@ def build_weather_segments(city: str, data: Dict[str, Any]) -> List[Dict[str, An
     return [MessageSegment.text("\n".join(lines))]
 
 
-def build_forecast_segments(city: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_forecast_segments(city: str, data: dict[str, Any]) -> list[dict[str, Any]]:
     lines = [f"📍 {city} 天气预报"]
     forecast = data.get("forecast", [])
     if isinstance(forecast, list):
@@ -116,7 +116,7 @@ def build_forecast_segments(city: str, data: Dict[str, Any]) -> List[Dict[str, A
 
 # ==================== 新闻逻辑 ====================
 
-def build_news_segments(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_news_segments(result: dict[str, Any]) -> list[dict[str, Any]]:
     lines = ["📰 60秒读懂世界\n"]
     if "title" in result:
         lines.append(f"标题: {result['title']}\n")
@@ -144,11 +144,11 @@ FORTUNE_KEYWORDS = ["运势", "八字", "命理", "紫微", "星座", "塔罗", 
 HELP_KEYWORDS = ["帮助", "使用说明", "功能", "指南"]
 
 
-def match_keyword(text: str, keywords: List[str]) -> bool:
+def match_keyword(text: str, keywords: list[str]) -> bool:
     return any(kw in text for kw in keywords)
 
 
-def extract_city_from_weather(text: str) -> Optional[str]:
+def extract_city_from_weather(text: str) -> str | None:
     """从天气查询文本中提取城市名"""
     for kw in ["天气", "气温"]:
         if kw in text:
@@ -158,7 +158,7 @@ def extract_city_from_weather(text: str) -> Optional[str]:
     return None
 
 
-def extract_city_from_forecast(text: str) -> Optional[str]:
+def extract_city_from_forecast(text: str) -> str | None:
     """从天气预报文本中提取城市名"""
     city = text
     for kw in ["预报", "降雨", "湿度", "风力"]:

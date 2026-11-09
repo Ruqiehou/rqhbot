@@ -1,8 +1,8 @@
-import random
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+import random
+from datetime import datetime
 
 logger = logging.getLogger("rqhshen.game")
 
@@ -16,24 +16,24 @@ def load_realms_from_json():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     json_path = os.path.join(script_dir, "jingjie.json")
     if os.path.exists(json_path):
-        with open(json_path, 'r', encoding='utf-8') as f:
+        with open(json_path, encoding='utf-8') as f:
             data = json.load(f)
             realms = data.get('realms', [])
             thresholds = data.get('thresholds', [])
-            
+
             # 加载经验配置
             EXPERIENCE_CONFIG = data.get('experience_settings', {})
-            
+
             # 如果JSON中没有预设的阈值，则按斐波那契数列生成
             if not thresholds and realms:
                 thresholds = generate_fibonacci_thresholds(len(realms))
-            
+
             return realms, thresholds
     else:
         # 默认配置 - 250个主要境界
         realms = [
             "练气期",
-            "筑基期", 
+            "筑基期",
             "金丹期",
             "元婴期",
             "化神期",
@@ -48,7 +48,7 @@ def load_realms_from_json():
             "玄仙",
             "金仙",
             "太乙金仙",
-            "大至金仙", 
+            "大至金仙",
             "太乙玄仙",
             "大至玄仙",
             "太乙真仙",
@@ -312,7 +312,7 @@ def load_realms_from_json():
             "万法归宗龙",
             "无上至尊龙"
         ]
-        
+
         # 根据斐波那契数列生成突破所需经验列表
         thresholds = []
         for i in range(len(realms)):
@@ -324,7 +324,7 @@ def load_realms_from_json():
                 # 斐波那契逻辑：当前 = 前一个 + 前两个
                 val = thresholds[i-1] + thresholds[i-2]
                 thresholds.append(val)
-        
+
         return realms, thresholds
 
 def generate_fibonacci_thresholds(num_realms):
@@ -339,7 +339,7 @@ def generate_fibonacci_thresholds(num_realms):
             # 斐波那契逻辑：当前 = 前一个 + 前两个
             val = thresholds[i-1] + thresholds[i-2]
             thresholds.append(val)
-    
+
     return thresholds
 
 # 1. 从配置文件加载境界名称列表
@@ -360,13 +360,13 @@ SUB_REALMS = generate_sub_realms()
 # 为每个子境界设置突破经验
 def generate_sub_thresholds():
     sub_thresholds = []
-    for i, base_threshold in enumerate(REALM_THRESHOLDS):
+    for _i, base_threshold in enumerate(REALM_THRESHOLDS):
         # 每个主境界分为9个子层，每个子层需要 1/9 的基础突破经验
         if base_threshold == float('inf'):  # 最后一个境界
             sub_step = float('inf')
         else:
             sub_step = base_threshold // 9
-        for j in range(9):
+        for _j in range(9):
             sub_thresholds.append(sub_step)
     # 最后一个境界不需要突破
     sub_thresholds.append(float('inf'))
@@ -483,12 +483,12 @@ class CultivationSystem:
         self._pending_recovery = {}
         self._ensure_data_dir_exists()
         self.load_all_players()
-    
+
     def _ensure_data_dir_exists(self):
         """确保数据目录存在"""
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
-    
+
     def load_player(self, qq_id: int, username: str, deliver_recovery: bool = True):
         """加载或创建玩家数据
 
@@ -500,7 +500,7 @@ class CultivationSystem:
         player = None
         if os.path.exists(player_file):
             try:
-                with open(player_file, 'r', encoding='utf-8') as f:
+                with open(player_file, encoding='utf-8') as f:
                     player_data = json.load(f)
                 if not isinstance(player_data, dict):
                     raise ValueError("玩家存档不是 JSON 对象")
@@ -582,12 +582,12 @@ class CultivationSystem:
             except OSError:
                 pass
             raise
-    
+
     def load_all_players(self):
         """加载所有玩家数据到内存缓存"""
         if not os.path.exists(self.data_dir):
             return
-        
+
         for filename in os.listdir(self.data_dir):
             if filename.startswith("player_") and filename.endswith(".json"):
                 try:
@@ -596,19 +596,19 @@ class CultivationSystem:
                     self.load_player(qq_id, f"User_{qq_id}", deliver_recovery=False)
                 except ValueError:
                     continue
-    
+
     def load_all_players_from_files(self):
         """从文件加载所有玩家数据，不使用缓存 - 用于排行榜等需要最新数据的场景"""
         players = []
         if not os.path.exists(self.data_dir):
             return players
-        
+
         for filename in os.listdir(self.data_dir):
             if filename.startswith("player_") and filename.endswith(".json"):
                 try:
                     qq_id = int(filename.replace("player_", "").replace(".json", ""))
                     player_file = os.path.join(self.data_dir, filename)
-                    with open(player_file, 'r', encoding='utf-8') as f:
+                    with open(player_file, encoding='utf-8') as f:
                         player_data = json.load(f)
                         player = Cultivator(
                             username=player_data.get('username', f'User_{qq_id}'),
@@ -627,37 +627,37 @@ class CultivationSystem:
                 except Exception as e:
                     print(f"加载玩家文件 {filename} 时出错: {e}")
                     continue
-        
+
         return players
-    
+
     def find_player_by_username(self, target_username):
         """根据用户名查找玩家"""
         for player in self.players.values():
             if player.username.lower() == target_username.lower():
                 return player
         return None
-    
+
     def get_ranking(self, top_n=10):
         """获取排行榜"""
         players = self.load_all_players_from_files()
-        
+
         if not players:
             return "暂无玩家数据"
-        
+
         # 按境界排序
         sorted_players = sorted(players, key=lambda p: p.realm_index, reverse=True)
-        
+
         ranking_info = "🏆 修仙排行榜 🏆\n\n"
         for i, player in enumerate(sorted_players[:top_n], 1):
             ranking_info += f"{i}. {player.username} - {player.current_realm_name}\n"
-        
+
         return ranking_info
 
 
 class Cultivator:
-    def __init__(self, username: str, qq_id: int, realm_index: int = 0, exp: int = 0, 
-                 last_meditate: str = '', total_exp_gained: int = 0, 
-                 total_breakthroughs: int = 0, items: list = None, is_soul_opened: bool = False,
+    def __init__(self, username: str, qq_id: int, realm_index: int = 0, exp: int = 0,
+                 last_meditate: str = '', total_exp_gained: int = 0,
+                 total_breakthroughs: int = 0, items: list | None = None, is_soul_opened: bool = False,
                  is_ascended: bool = False, ascension_count: int = 0):
         self.username = username
         self.qq_id = qq_id
@@ -712,7 +712,7 @@ class Cultivator:
         """开灵功能 - 踏入仙途"""
         if self.is_soul_opened:
             return "道友已经开灵成功，正在仙途之上修行！"
-        
+
         success_rate = random.randint(1, 100)
         if success_rate <= 80:
             self.is_soul_opened = True
@@ -760,10 +760,10 @@ class Cultivator:
                 self.exp = max(0, self.exp - loss_amount)
 
                 failure_messages = [
-                    f"\n💥 突破失败！由于心境不稳，修为倒退！\n",
-                    f"\n⚡ 突破受阻！天地灵气反噬，修为受损！\n",
-                    f"\n🔥 突破失利！体内灵力紊乱，修为减半！\n",
-                    f"\n❄️ 突破失败！道心受创，修为大损！\n"
+                    "\n💥 突破失败！由于心境不稳，修为倒退！\n",
+                    "\n⚡ 突破受阻！天地灵气反噬，修为受损！\n",
+                    "\n🔥 突破失利！体内灵力紊乱，修为减半！\n",
+                    "\n❄️ 突破失败！道心受创，修为大损！\n"
                 ]
                 msg += random.choice(failure_messages)
                 msg += f"💔 修为损失：-{loss_amount}\n"
@@ -778,9 +778,9 @@ class Cultivator:
                 breakthrough_occurred = True
 
                 current_realm = SUB_REALMS[self.realm_index]
-                msg += f"\n🎉 🎉 🎉 自动突破成功！ 🎉 🎉 🎉\n"
+                msg += "\n🎉 🎉 🎉 自动突破成功！ 🎉 🎉 🎉\n"
                 msg += f"恭喜道友晋升至：【{current_realm}】\n"
-        
+
         msg += f"📊 当前修为：{self.exp} / {self.next_threshold if self.next_threshold != float('inf') else 'MAX'}\n"
 
         if breakthrough_occurred:
@@ -845,32 +845,32 @@ class Cultivator:
         """飞升功能 - 在9、49、159、199、279级对应的大境界可以飞升"""
         if not self.is_soul_opened:
             return "道友尚未开灵，无法飞升。请先使用开灵功能踏入仙途。"
-        
+
         # 计算当前主境界（从1开始）
         current_main_realm = (self.realm_index // 9) + 1
-        
+
         # 检查当前是否在可以飞升的主境界
         if current_main_realm not in ASCENSION_LEVELS:
             return f"❌ 当前主境界【{current_main_realm}级】无法飞升。\n可飞升的主境界为：{', '.join(map(str, ASCENSION_LEVELS))}级\n当前境界：【{self.current_realm_name}】"
-        
+
         # 飞升成功率30%
         if random.randint(1, 100) <= 30:
             # 飞升成功
             self.is_ascended = True
             self.ascension_count += 1
-            
+
             msg = f"🌟🌟🌟 恭喜【{self.username}】成功飞升！ 🌟🌟🌟\n"
             msg += f"从【{current_main_realm}级·{self.current_realm_name}】突破凡尘，成功飞升！\n"
             msg += f"🎊 飞升次数：{self.ascension_count}\n"
             msg += f"📊 当前境界：【{self.current_realm_name}】\n"
             msg += f"⚡ 当前修为：{self.exp}\n"
             if current_main_realm == 279:
-                msg += f"💡 279级飞升后可以继续积累修为，但无法突破到更高境界！"
+                msg += "💡 279级飞升后可以继续积累修为，但无法突破到更高境界！"
         else:
             # 飞升失败，扣除一半经验
             loss_amount = self.exp // 2
             self.exp = max(0, self.exp - loss_amount)
-            
+
             failure_messages = [
                 f"💥【{self.username}】飞升失败！天劫降临，道心受损！\n",
                 f"⚡【{self.username}】飞升失败！雷劫未过，修为大损！\n",
@@ -880,98 +880,98 @@ class Cultivator:
             msg = random.choice(failure_messages)
             msg += f"💔 修为损失：-{loss_amount}\n"
             msg += f"📊 当前修为：{self.exp} / {self.next_threshold if self.next_threshold != float('inf') else 'MAX'}\n"
-            msg += f"💡 道友请继续修炼，积累足够修为后再尝试飞升！"
-        
+            msg += "💡 道友请继续修炼，积累足够修为后再尝试飞升！"
+
         return msg
 
     def get_status(self):
         """获取玩家状态"""
         if not self.is_soul_opened:
             return f"【{self.username}】\n尚未开灵，请用开灵功能踏入仙途。"
-        
+
         ascension_status = f"✅ 已飞升 (第{self.ascension_count}次)" if self.is_ascended else "❌ 未飞升"
-        
+
         msg = f"【{self.username}】\n"
         msg += f"当前境界：{self.current_realm_name}\n"
         msg += f"当前修为：{self.exp} / {self.next_threshold if self.next_threshold != float('inf') else 'MAX'}\n"
         msg += f"总突破次数：{self.total_breakthroughs} 次\n"
         msg += f"总获得修为：{self.total_exp_gained}\n"
         msg += f"🌌 飞升状态：{ascension_status}"
-        
+
         return msg
 
     def battle(self, opponent):
         """与其他玩家对战"""
         self_power = self.realm_index * 100 + self.exp
         opponent_power = opponent.realm_index * 100 + opponent.exp
-        
+
         total_power = self_power + opponent_power
         if total_power == 0:
             win_prob = 0.5
         else:
             win_prob = self_power / total_power
-        
+
         win_prob = win_prob * 0.7 + random.random() * 0.3
-        
+
         if random.random() < win_prob:
             exp_gain = random.randint(50, 200)
             self.exp += exp_gain
-            
+
             battle_result = f"⚔️ 战斗胜利！【{self.username}】击败了【{opponent.username}】\n"
             battle_result += f"🎉 获得修为奖励：+{exp_gain}\n"
             battle_result += f"当前修为：{self.exp}/{self.next_threshold if self.next_threshold != float('inf') else 'MAX'}"
-            
+
             return battle_result
         else:
             exp_loss = random.randint(20, 100)
             self.exp = max(0, self.exp - exp_loss)
-            
+
             battle_result = f"⚔️ 战斗失败！【{self.username}】败给了【{opponent.username}】\n"
             battle_result += f"💔 战败惩罚：-{exp_loss} 修为\n"
             battle_result += f"当前修为：{self.exp}/{self.next_threshold if self.next_threshold != float('inf') else 'MAX'}"
-            
+
             return battle_result
 
     def attack(self, opponent):
         """攻击其他玩家"""
         self_power = self.realm_index * 100 + self.exp
         opponent_power = opponent.realm_index * 100 + opponent.exp
-        
+
         total_power = self_power + opponent_power
         if total_power == 0:
             win_prob = 0.5
         else:
             win_prob = self_power / total_power
-        
+
         win_prob = win_prob * 0.7 + random.random() * 0.3
-        
+
         if random.random() < win_prob:
             opponent_loss = opponent.exp // 2
             opponent.exp = max(0, opponent.exp - opponent_loss)
-            
+
             self_loss = self.exp // 3
             self.exp = max(0, self.exp - self_loss)
-            
+
             self.check_and_update_realm_after_attack()
             opponent.check_and_update_realm_after_attack()
-            
+
             attack_result = f"🗡️ 攻击成功！【{self.username}】重创了【{opponent.username}】\n"
             attack_result += f"💥 对方修为损失：-{opponent_loss} (剩余: {opponent.exp})\n"
             attack_result += f"💔 自身修为损失：-{self_loss} (剩余: {self.exp})"
         else:
             opponent_loss = opponent.exp // 3
             opponent.exp = max(0, opponent.exp - opponent_loss)
-            
+
             self_loss = self.exp // 2
             self.exp = max(0, self.exp - self_loss)
-            
+
             self.check_and_update_realm_after_attack()
             opponent.check_and_update_realm_after_attack()
-            
+
             attack_result = f"🛡️ 攻击失败！【{opponent.username}】抵御了【{self.username}】的攻击\n"
             attack_result += f"💥 对方修为损失：-{opponent_loss} (剩余: {opponent.exp})\n"
             attack_result += f"💔 自身修为损失：-{self_loss} (剩余: {self.exp})"
-        
+
         return attack_result
 
     def check_and_update_realm_after_attack(self):

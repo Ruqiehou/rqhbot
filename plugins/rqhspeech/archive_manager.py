@@ -8,55 +8,55 @@
   - auto_archive_weekly(): 自动归档所有未归档的周榜
 """
 
-import json
 import csv
+import json
+import logging
 import os
 import shutil
-import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
 
-from .speech_config import SpeechConfig
 from .data_manager import load_user_data
+from .speech_config import SpeechConfig
 
 logger = logging.getLogger(__name__)
 
 
 class DailyArchiver:
     """每日归档管理器"""
-    
+
     def __init__(self):
         """初始化"""
         self.users_dir = SpeechConfig.USERS_DIR
         self.archives_dir = SpeechConfig.ARCHIVES_DIR
         self.last_archive_file = os.path.join(self.archives_dir, "last_archive.json")
-    
-    def get_all_user_files(self) -> List[str]:
+
+    def get_all_user_files(self) -> list[str]:
         """获取所有用户JSON文件"""
         user_files = []
         for file in os.listdir(self.users_dir):
             if file.endswith(SpeechConfig.USER_FILE_EXTENSION):
                 user_files.append(file)
         return user_files
-    
-    def load_user_data(self, filename: str) -> Optional[Dict[str, Any]]:
+
+    def load_user_data(self, filename: str) -> dict[str, Any] | None:
         """加载用户数据"""
         filepath = os.path.join(self.users_dir, filename)
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, encoding='utf-8') as f:
                 data = json.load(f)
             return data
         except Exception as e:
             logger.error(f"加载文件 {filename} 时出错: {e}")
             return None
-    
-    def collect_user_stats_for_date(self, target_date: str) -> List[Dict[str, Any]]:
+
+    def collect_user_stats_for_date(self, target_date: str) -> list[dict[str, Any]]:
         """收集指定日期的用户统计数据"""
         user_stats = []
         user_files = self.get_all_user_files()
-        
+
         logger.info(f"正在收集 {len(user_files)} 个用户的统计数据...")
-        
+
         for user_file in user_files:
             data = self.load_user_data(user_file)
             if data:
@@ -69,14 +69,14 @@ class DailyArchiver:
                 for dates in (data.get("daily_records") or {}).values():
                     if isinstance(dates, dict):
                         message_count += int(dates.get(target_date, 0))
-                
+
                 # 设置最后发言时间为目标日期
                 target_date_obj = datetime.strptime(target_date, "%Y-%m-%d")
                 message_time = target_date_obj.strftime(SpeechConfig.DISPLAY_DATE_FORMAT)
-                
+
                 # 计算活跃度得分
                 activity_score = message_count * 1.0
-                
+
                 user_stat = {
                     "用户id": user_id,
                     "用户名": username,
@@ -86,35 +86,35 @@ class DailyArchiver:
                     "数据文件": user_file,
                     "收集时间": SpeechConfig.get_current_datetime()
                 }
-                
+
                 user_stats.append(user_stat)
-        
+
         return user_stats
-    
-    def generate_ranking(self, user_stats: List[Dict[str, Any]], 
-                        top_n: int = None) -> Dict[str, Any]:
+
+    def generate_ranking(self, user_stats: list[dict[str, Any]],
+                        top_n: int | None = None) -> dict[str, Any]:
         """生成排行榜"""
         if top_n is None:
             top_n = SpeechConfig.RANKING_TOP_N
-        
+
         # 按发言数量降序排序
         sorted_by_messages = sorted(
-            user_stats, 
-            key=lambda x: x["发言数量"], 
+            user_stats,
+            key=lambda x: x["发言数量"],
             reverse=True
         )
-        
+
         # 按活跃度得分降序排序
         sorted_by_activity = sorted(
-            user_stats, 
-            key=lambda x: x["活跃度得分"], 
+            user_stats,
+            key=lambda x: x["活跃度得分"],
             reverse=True
         )
-        
+
         # 过滤掉发言数为0的用户
-        active_users = [u for u in user_stats 
+        active_users = [u for u in user_stats
                        if u["发言数量"] >= SpeechConfig.MIN_MESSAGES_FOR_RANKING]
-        
+
         # 生成榜单数据
         ranking_data = {
             "生成时间": SpeechConfig.get_current_datetime(),
@@ -146,59 +146,59 @@ class DailyArchiver:
             },
             "详细数据": active_users
         }
-        
+
         return ranking_data
-    
-    def save_ranking_json(self, ranking_data: Dict[str, Any], 
-                         date: str = None) -> str:
+
+    def save_ranking_json(self, ranking_data: dict[str, Any],
+                         date: str | None = None) -> str:
         """保存榜单为JSON文件（按年分层：rankings/YYYY/ranking_YYYY-MM-DD.json）"""
         if date is None:
             date = SpeechConfig.get_current_date()
-        
+
         year = date.split("-")[0]
         year_dir = os.path.join(SpeechConfig.RANKINGS_DIR, year)
         os.makedirs(year_dir, exist_ok=True)
-        
+
         filename = SpeechConfig.get_ranking_filename(date)
         filepath = os.path.join(year_dir, filename)
-        
+
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(ranking_data, f, ensure_ascii=False, indent=2)
-            
+
             logger.info(f"榜单已保存为JSON文件: {filename}")
             return filepath
-            
+
         except Exception as e:
             logger.error(f"保存JSON榜单时出错: {e}")
             return ""
-    
-    def save_ranking_csv(self, ranking_data: Dict[str, Any], 
-                        date: str = None) -> str:
+
+    def save_ranking_csv(self, ranking_data: dict[str, Any],
+                        date: str | None = None) -> str:
         """保存榜单为CSV文件（按年分层：csv/YYYY/ranking_YYYY-MM-DD.csv）"""
         if date is None:
             date = SpeechConfig.get_current_date()
-        
+
         year = date.split("-")[0]
         year_dir = os.path.join(SpeechConfig.CSV_DIR, year)
         os.makedirs(year_dir, exist_ok=True)
-        
+
         filename = SpeechConfig.get_csv_filename(date)
         filepath = os.path.join(year_dir, filename)
-        
+
         try:
             # 提取按发言数量排名的数据
             message_ranking = ranking_data["榜单"]["按发言数量排名"]
-            
+
             with open(filepath, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
-                
+
                 # 写入标题
                 writer.writerow([
-                    "排名", "用户ID", "用户名", 
+                    "排名", "用户ID", "用户名",
                     "发言数量", "最后发言时间", "统计日期"
                 ])
-                
+
                 # 写入数据
                 for item in message_ranking:
                     writer.writerow([
@@ -209,87 +209,87 @@ class DailyArchiver:
                         item["最后发言时间"],
                         date
                     ])
-            
+
             logger.info(f"榜单已保存为CSV文件: {filename}")
             return filepath
-            
+
         except Exception as e:
             logger.error(f"保存CSV榜单时出错: {e}")
             return ""
-    
-    def archive_for_date(self, target_date: str) -> Tuple[bool, str]:
+
+    def archive_for_date(self, target_date: str) -> tuple[bool, str]:
         """归档指定日期的数据"""
         logger.info(f"[归档] 开始为日期 {target_date} 执行数据归档...")
-        
+
         try:
             # 收集指定日期的用户统计数据
             user_stats = self.collect_user_stats_for_date(target_date)
-            
+
             if not user_stats:
                 return False, f"日期 {target_date} 没有用户数据"
-            
+
             # 生成榜单
             ranking_data = self.generate_ranking(user_stats)
             ranking_data["统计日期"] = target_date
-            
+
             # 保存榜单文件
             json_file = self.save_ranking_json(ranking_data, target_date)
             csv_file = self.save_ranking_csv(ranking_data, target_date)
-            
+
             if not json_file and not csv_file:
                 return False, "榜单保存失败"
-            
+
             # 生成归档报告
             report = self.generate_archive_report(ranking_data)
-            
+
             # 更新最后归档日期
             self.update_last_archive_date(target_date)
-            
+
             return True, f"成功归档 {target_date} 的数据\n{report}"
-            
+
         except Exception as e:
             logger.error(f"[归档] 执行归档时出现异常: {e}")
             import traceback
             traceback.print_exc()
-            return False, f"归档失败: {str(e)}"
-    
-    def backup_user_data(self, date: str = None) -> str:
+            return False, f"归档失败: {e!s}"
+
+    def backup_user_data(self, date: str | None = None) -> str:
         """备份用户数据（按年分层：backups/YYYY/backup_YYYY-MM-DD/）"""
         if date is None:
             date = SpeechConfig.get_current_date()
-        
+
         year = date.split("-")[0]
         backup_dir = os.path.join(SpeechConfig.BACKUPS_DIR, year, f"backup_{date}")
-        
+
         try:
             if os.path.exists(self.users_dir):
                 # 创建备份目录
                 os.makedirs(backup_dir, exist_ok=True)
-                
+
                 # 复制所有用户文件
                 for file in os.listdir(self.users_dir):
                     if file.endswith(SpeechConfig.USER_FILE_EXTENSION):
                         src = os.path.join(self.users_dir, file)
                         dst = os.path.join(backup_dir, file)
                         shutil.copy2(src, dst)
-                
+
                 logger.info(f"用户数据已备份到: {backup_dir}")
                 return backup_dir
-                
+
         except Exception as e:
             logger.error(f"备份用户数据时出错: {e}")
-        
+
         return ""
-    
-    def generate_archive_report(self, ranking_data: Dict[str, Any]) -> str:
+
+    def generate_archive_report(self, ranking_data: dict[str, Any]) -> str:
         """生成归档报告"""
         total_users = ranking_data["总用户数"]
         active_users = ranking_data["活跃用户数"]
         total_messages = ranking_data["总发言数"]
-        
+
         # 获取榜首用户
         top_user = ranking_data["榜单"]["按发言数量排名"][0] if ranking_data["榜单"]["按发言数量排名"] else {}
-        
+
         report = f"""
 📈 归档报告
 ══════════════════════════════════════
@@ -308,23 +308,23 @@ class DailyArchiver:
 
 📊 详细榜单已保存到：{SpeechConfig.RANKINGS_DIR}
         """
-        
+
         logger.info(report)
         return report
-    
-    def get_last_archive_date(self) -> Optional[str]:
+
+    def get_last_archive_date(self) -> str | None:
         """获取最后归档日期"""
         if not os.path.exists(self.last_archive_file):
             return None
-        
+
         try:
-            with open(self.last_archive_file, 'r', encoding='utf-8') as f:
+            with open(self.last_archive_file, encoding='utf-8') as f:
                 data = json.load(f)
             return data.get("last_archive_date")
         except Exception as e:
             logger.error(f"读取最后归档日期失败: {e}")
             return None
-    
+
     def update_last_archive_date(self, date: str):
         """更新最后归档日期"""
         try:
@@ -333,63 +333,63 @@ class DailyArchiver:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"更新最后归档日期失败: {e}")
-    
-    def get_dates_to_archive(self) -> List[str]:
+
+    def get_dates_to_archive(self) -> list[str]:
         """获取需要归档的日期列表"""
         dates_to_archive = []
-        
+
         # 获取最后归档日期
         last_archive_date = self.get_last_archive_date()
-        
+
         # 计算开始日期
         if last_archive_date:
             start_date = datetime.strptime(last_archive_date, "%Y-%m-%d") + timedelta(days=1)
         else:
             # 如果没有最后归档日期，默认从7天前开始
             start_date = datetime.now() - timedelta(days=7)
-        
+
         # 计算结束日期（昨天）
         end_date = datetime.now() - timedelta(days=1)
-        
+
         # 生成日期列表
         current_date = start_date
         while current_date <= end_date:
             date_str = current_date.strftime("%Y-%m-%d")
             dates_to_archive.append(date_str)
             current_date += timedelta(days=1)
-        
+
         return dates_to_archive
-    
-    def auto_archive(self) -> Tuple[bool, str]:
+
+    def auto_archive(self) -> tuple[bool, str]:
         """自动归档从上次备份后的所有日期"""
         logger.info("=" * 50)
         logger.info("开始自动归档处理")
         logger.info("=" * 50)
-        
+
         # 获取需要归档的日期
         dates_to_archive = self.get_dates_to_archive()
-        
+
         if not dates_to_archive:
             return True, "没有需要归档的日期"
-        
+
         logger.info(f"找到 {len(dates_to_archive)} 个需要归档的日期:")
         for date in dates_to_archive:
             logger.info(f"  - {date}")
-        
+
         # 备份用户数据
         if SpeechConfig.BACKUP_BEFORE_ARCHIVE:
             self.backup_user_data()
-        
+
         # 逐个归档日期
         results = []
         for date in dates_to_archive:
             success, message = self.archive_for_date(date)
             results.append((date, success, message))
-        
+
         # 生成汇总报告
         successful = sum(1 for _, success, _ in results if success)
         total = len(results)
-        
+
         report = f"""
 📊 自动归档汇总报告
 ══════════════════════════════════════
@@ -399,19 +399,19 @@ class DailyArchiver:
 
 详细结果：
 """
-        
+
         for date, success, message in results:
             status = "✅" if success else "❌"
             report += f"{status} {date}: {message.split(chr(10))[0]}\n"
-        
+
         logger.info(report)
         return True, report
-    
-    def archive_today(self) -> Tuple[bool, str]:
+
+    def archive_today(self) -> tuple[bool, str]:
         """归档今天的数据"""
         today = SpeechConfig.get_current_date()
         return self.archive_for_date(today)
-    
+
     def display_today_ranking(self):
         """显示今日榜单"""
         today = SpeechConfig.get_current_date()
@@ -421,15 +421,15 @@ class DailyArchiver:
             year,
             SpeechConfig.get_ranking_filename()
         )
-        
+
         if not os.path.exists(today_file):
             logger.warning("今日榜单尚未生成，请先执行归档操作。")
             return
-        
+
         try:
-            with open(today_file, 'r', encoding='utf-8') as f:
+            with open(today_file, encoding='utf-8') as f:
                 ranking_data = json.load(f)
-            
+
             logger.info("=" * 60)
             logger.info("🏆 今日发言排行榜 🏆")
             logger.info("=" * 60)
@@ -437,7 +437,7 @@ class DailyArchiver:
             logger.info(f"👥 总用户数: {ranking_data['总用户数']}")
             logger.info(f"💬 总发言数: {ranking_data['总发言数']}")
             logger.info("")
-            
+
             # 显示按发言数量排名的前10名
             logger.info("📊 按发言数量排名（前10名）:")
             logger.info("-" * 60)
@@ -445,9 +445,9 @@ class DailyArchiver:
                 logger.info(f"🏅 第{item['排名']:2d}名: {item['用户名']:15s} "
                       f"| 💬 {item['发言数量']:4d}条 "
                       f"| ⏰ {item['最后发言时间']}")
-            
+
             logger.info("")
-            
+
             # 显示按活跃度排名的前5名
             logger.info("🚀 按活跃度排名（前5名）:")
             logger.info("-" * 60)
@@ -455,9 +455,9 @@ class DailyArchiver:
                 logger.info(f"⭐ 第{item['排名']:2d}名: {item['用户名']:15s} "
                       f"| 📈 {item['活跃度得分']:6.2f}分 "
                       f"| 💬 {item['发言数量']:4d}条")
-            
+
             logger.info("=" * 60)
-            
+
         except Exception as e:
             logger.error(f"读取榜单时出错: {e}")
 
@@ -469,7 +469,7 @@ class WeeklyArchiver:
         self.users_dir = SpeechConfig.USERS_DIR
         self.rankings_dir = SpeechConfig.RANKINGS_DIR
 
-    def _parse_week_key(self, identifier: str) -> Tuple[Optional[str], str]:
+    def _parse_week_key(self, identifier: str) -> tuple[str | None, str]:
         """解析周标识符，返回 (week_key, week_info)"""
         if identifier.startswith('W') or identifier.startswith('w'):
             try:
@@ -502,7 +502,7 @@ class WeeklyArchiver:
             except ValueError:
                 return None, "日期格式错误，请使用 YYYY-MM-DD 格式"
 
-    def collect_user_stats_for_week(self, week_key: str) -> List[Dict[str, Any]]:
+    def collect_user_stats_for_week(self, week_key: str) -> list[dict[str, Any]]:
         """收集指定周的用户统计数据"""
         user_stats = []
 
@@ -539,9 +539,9 @@ class WeeklyArchiver:
         user_stats.sort(key=lambda x: x["发言数量"], reverse=True)
         return user_stats
 
-    def generate_ranking(self, user_stats: List[Dict[str, Any]],
+    def generate_ranking(self, user_stats: list[dict[str, Any]],
                          week_key: str, week_info: str,
-                         top_n: int = None) -> Dict[str, Any]:
+                         top_n: int | None = None) -> dict[str, Any]:
         """生成周榜数据"""
         if top_n is None:
             top_n = SpeechConfig.RANKING_WEEKLY_TOP_N
@@ -572,7 +572,7 @@ class WeeklyArchiver:
 
         return ranking_data
 
-    def save_ranking_json(self, ranking_data: Dict[str, Any],
+    def save_ranking_json(self, ranking_data: dict[str, Any],
                           week_key: str) -> str:
         """保存周榜为JSON文件"""
         year = week_key.split("-W")[0]
@@ -590,7 +590,7 @@ class WeeklyArchiver:
             logger.error(f"保存JSON周榜时出错: {e}")
             return ""
 
-    def save_ranking_csv(self, ranking_data: Dict[str, Any],
+    def save_ranking_csv(self, ranking_data: dict[str, Any],
                          week_key: str) -> str:
         """保存周榜为CSV文件"""
         year = week_key.split("-W")[0]
@@ -617,7 +617,7 @@ class WeeklyArchiver:
             logger.error(f"保存CSV周榜时出错: {e}")
             return ""
 
-    def archive_for_week(self, identifier: str) -> Tuple[bool, str]:
+    def archive_for_week(self, identifier: str) -> tuple[bool, str]:
         """归档指定周的数据"""
         week_key, week_info = self._parse_week_key(identifier)
         if week_key is None:
@@ -651,14 +651,13 @@ class WeeklyArchiver:
         logger.info(report)
         return True, f"成功生成 {week_info} 周榜\n{report}"
 
-    def archive_current_week(self) -> Tuple[bool, str]:
+    def archive_current_week(self) -> tuple[bool, str]:
         """归档当前周的数据"""
         current_date = datetime.now()
         current_week_start = current_date - timedelta(days=current_date.weekday())
-        iso_year, iso_week, _ = current_week_start.isocalendar()
-        week_key = f"{iso_year}-W{iso_week:02d}"
+        _iso_year, _iso_week, _ = current_week_start.isocalendar()
         week_end = current_week_start + timedelta(days=6)
-        week_info = f"{current_week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
+        f"{current_week_start.strftime('%Y-%m-%d')} 至 {week_end.strftime('%Y-%m-%d')}"
         identifier = current_date.strftime("%Y-%m-%d")
         return self.archive_for_week(identifier)
 
@@ -686,7 +685,7 @@ class WeeklyArchiver:
         if not os.path.exists(self.rankings_dir):
             return archived
 
-        for root, dirs, files in os.walk(self.rankings_dir):
+        for _root, _dirs, files in os.walk(self.rankings_dir):
             for filename in files:
                 if filename.startswith("ranking_") and filename.endswith(".json"):
                     # 格式: ranking_2026-W19.json
@@ -695,7 +694,7 @@ class WeeklyArchiver:
 
         return archived
 
-    def auto_archive_weekly(self) -> Tuple[bool, str]:
+    def auto_archive_weekly(self) -> tuple[bool, str]:
         """自动归档所有未归档的周"""
         logger.info("=" * 50)
         logger.info("开始自动周榜归档")
@@ -749,33 +748,33 @@ def daily_archive():
     """执行日常归档"""
     today = SpeechConfig.get_current_date()
     logger.info(f"开始归档今天的数据: {today}")
-    
+
     archiver = DailyArchiver()
     success, message = archiver.archive_for_date(today)
-    
+
     if success:
         logger.info("日归档完成")
     else:
         logger.error(f"归档失败: {message}")
-    
+
     return success
 
 def auto_archive():
     """执行自动归档"""
     archiver = DailyArchiver()
     success, message = archiver.auto_archive()
-    
+
     if success:
         logger.info("自动归档完成")
     else:
         logger.error(f"自动归档失败: {message}")
-    
+
     return success
 
 def main():
     """主函数"""
     import sys
-    
+
     if len(sys.argv) > 1:
         if sys.argv[1] == '--today':
             daily_archive()

@@ -1,9 +1,10 @@
 #2025-12-11-17-54版本
 
-from PIL import Image
-
 # 修改顶部路径配置
 import os
+
+from PIL import Image
+
 SOURCE_DIR = os.path.dirname(__file__)  # 当前文件所在目录（zm目录）
 
 def image_a(image_name="image_a.png"):
@@ -40,7 +41,7 @@ def image_g(image_name="image_g.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
     img_g = Image.open(img_path)
     return img_g
-   
+
 def image_h(image_name="image_h.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
     img_h = Image.open(img_path)
@@ -92,11 +93,11 @@ def image_q(image_name="image_er.png"):
 def image_r(image_name="image_r.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
     img_r = Image.open(img_path)
-    return img_r  
+    return img_r
 def image_s(image_name="image_s.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
     img_s = Image.open(img_path)
-    return img_s 
+    return img_s
 
 def image_t(image_name="image_t.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
@@ -113,7 +114,7 @@ def image_v(image_name="image_vw.png"):  #
     img_vw = Image.open(img_path)
     return img_vw
 
-def image_w(image_name="image_vw.png"): 
+def image_w(image_name="image_vw.png"):
     img_path = os.path.join(SOURCE_DIR, image_name)
     img_vw = Image.open(img_path)
     return img_vw
@@ -176,7 +177,7 @@ def create_space_placeholder(width, height):
     """
     创建空格占位符图片
     """
-    space_img = Image.new('RGB', (width, height), (173, 216, 230))  
+    space_img = Image.new('RGB', (width, height), (173, 216, 230))
     return space_img
 
 def parse_char_sequence(char_sequence):
@@ -186,14 +187,14 @@ def parse_char_sequence(char_sequence):
     result = []
     i = 0
     sequence_length = len(char_sequence)
-    
+
     while i < sequence_length:
         # 检查空格
         if char_sequence[i] == ' ':
             result.append(' ')  # 空格标记
             i += 1
             continue
-            
+
         # 检查双字符组合（优先级最高）
         if i + 1 < sequence_length:
             two_chars = char_sequence[i:i+2].lower()
@@ -201,18 +202,18 @@ def parse_char_sequence(char_sequence):
                 result.append(two_chars)
                 i += 2
                 continue
-        
+
         # 检查单字符
         current_char = char_sequence[i].lower()
         if current_char in 'abcdefghijklmnopqrstuvwxyz':
             result.append(current_char)
             i += 1
             continue
-        
+
         # 如果遇到无法识别的字符，跳过并记录警告
         print(f"警告: 跳过无法识别的字符 '{current_char}'")
         i += 1
-    
+
     return result
 
 def get_image_by_char(char):
@@ -222,9 +223,9 @@ def get_image_by_char(char):
     # 如果是空格，返回None，由组合函数处理
     if char == ' ':
         return None
-    
+
     char = char.lower()
-    
+
     # 特殊双字符组合
     special_combinations = {
         'ie': image_ie,
@@ -236,7 +237,7 @@ def get_image_by_char(char):
         'ch': image_ch,
         'cc': image_cc
     }
-    
+
     # 单字符映射
     single_char_mapping = {
         'a': image_a, 'b': image_b, 'c': image_c, 'd': image_d, 'e': image_e,
@@ -246,19 +247,19 @@ def get_image_by_char(char):
         'u': image_u, 'v': image_v, 'w': image_w, 'x': image_x, 'y': image_y,
         'z': image_z
     }
-    
+
     # 优先检查特殊组合
     if char in special_combinations:
         return special_combinations[char]()
-    
+
     # 检查单字符
     if char in single_char_mapping:
         return single_char_mapping[char]()
-    
+
     # 支持大写字母自动转换为小写
     if char.upper() in single_char_mapping:
         return single_char_mapping[char.upper()]()
-    
+
     raise ValueError(f"无法识别的字符输入: '{char}'")
 
 def combine_images(char_sequence):
@@ -267,10 +268,10 @@ def combine_images(char_sequence):
     """
     # 使用智能解析器处理输入序列
     parsed_chars = parse_char_sequence(char_sequence)
-    
+
     if not parsed_chars:
         raise ValueError("输入序列中没有可识别的字符")
-    
+
     # 获取每个字符对应的图片（空格返回None）
     images_and_spaces = []
     for char in parsed_chars:
@@ -278,51 +279,51 @@ def combine_images(char_sequence):
             images_and_spaces.append(None)  # 标记为空格
         else:
             images_and_spaces.append(get_image_by_char(char))
-    
+
     # 获取所有非空格图片的尺寸用于计算
     valid_images = [img for img in images_and_spaces if img is not None]
     if not valid_images:
         raise ValueError("输入序列中没有有效的字符图片")
-    
-    widths, heights = zip(*(i.size for i in valid_images))
+
+    _widths, heights = zip(*(i.size for i in valid_images), strict=False)
     max_height = max(heights)
-    
+
     # 优化留白：上下各留最大高度的15%作为边距
     vertical_margin = int(max_height * 0.15)
     line_height = max_height + 2 * vertical_margin
-    
+
     # 间隙宽度为最大高度的10%
     gap_width = max_height // 10
-    
+
     # 空格宽度为最大高度的15%
     space_width = int(max_height * 0.15)
-    
+
     # 添加首尾留白：左右各留最大高度的20%
     horizontal_margin = int(max_height * 0.20)
-    
+
     # 计算每行的最大字符数（25个源图片）
     max_chars_per_line = 25
-    
+
     # 计算每行的内容
     lines = []
     current_line = []
     current_char_count = 0
-    
+
     for item in images_and_spaces:
         # 如果当前行已达到最大字符数，开始新行
         if current_char_count >= max_chars_per_line:
             lines.append(current_line)
             current_line = []
             current_char_count = 0
-        
+
         current_line.append(item)
         if item is not None:  # 只计算非空格字符
             current_char_count += 1
-    
+
     # 添加最后一行
     if current_line:
         lines.append(current_line)
-    
+
     # 计算总宽度（取最宽的一行）
     max_line_width = 0
     for line in lines:
@@ -335,19 +336,19 @@ def combine_images(char_sequence):
             line_width += gap_width  # 每个元素后添加间隙
         line_width -= gap_width  # 最后一个元素后不需要间隙
         max_line_width = max(max_line_width, line_width)
-    
+
     # 计算总高度（包括行间距）
     line_spacing = int(max_height * 0.10)  # 行间距为最大高度的10%
     total_height = len(lines) * line_height + (len(lines) - 1) * line_spacing
-    
+
     # 创建组合图片
     combined_image = Image.new('RGB', (max_line_width, total_height), (251, 255, 255))
-    
+
     # 逐行绘制
     current_y = 0
     for line in lines:
         current_x = horizontal_margin
-        
+
         # 绘制当前行的所有元素
         for item in line:
             if item is None:  # 空格占位符
@@ -360,10 +361,10 @@ def combine_images(char_sequence):
                 y_offset = current_y + (line_height - item.size[1]) // 2
                 combined_image.paste(item, (current_x, y_offset))
                 current_x += item.size[0] + gap_width
-        
+
         # 移动到下一行
         current_y += line_height + line_spacing
-    
+
     return combined_image
 
 def generate_combined_image(char_sequence: str) -> bool:
@@ -375,7 +376,7 @@ def generate_combined_image(char_sequence: str) -> bool:
         if not char_sequence or not char_sequence.strip():
             print("错误: 输入序列为空")
             return False
-            
+
         combined_img = combine_images(char_sequence)
         save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alphabet/picall")
         os.makedirs(save_dir, exist_ok=True)
@@ -384,7 +385,7 @@ def generate_combined_image(char_sequence: str) -> bool:
         print(f"成功生成图片: {save_path}")
         return True
     except Exception as e:
-        print(f"生成失败: {str(e)}")
+        print(f"生成失败: {e!s}")
         return False
 
 def generate_image(text: str, save_path: str) -> bool:
@@ -398,7 +399,7 @@ def generate_image(text: str, save_path: str) -> bool:
         d.text((10,10), text, fill=(255,255,0))
         img.save(save_path)
         return True
-    except:
+    except Exception:
         return False
 
 def main():

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Generator
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 @pytest.fixture
@@ -28,7 +31,7 @@ def mock_api() -> MagicMock:
 
 
 @pytest.fixture
-def sample_group_message_data() -> Dict[str, Any]:
+def sample_group_message_data() -> dict[str, Any]:
     """示例群消息数据"""
     return {
         "time": 1716182400,
@@ -54,7 +57,7 @@ def sample_group_message_data() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def sample_private_message_data() -> Dict[str, Any]:
+def sample_private_message_data() -> dict[str, Any]:
     """示例私聊消息数据"""
     return {
         "time": 1716182400,

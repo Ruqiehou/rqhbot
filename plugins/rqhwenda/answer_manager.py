@@ -4,7 +4,7 @@ import json
 import os
 import re
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any
 
 hmd = [""]
 gly = ["2654278608"]
@@ -18,8 +18,8 @@ class AnswerManager:
         self.fuzzy_file_path = fuzzy_file_path
         self.lock = Lock()
         self.write_lock = Lock()
-        self.precise_data: Dict[str, str] = {}
-        self.fuzzy_data: Dict[str, str] = {}
+        self.precise_data: dict[str, str] = {}
+        self.fuzzy_data: dict[str, str] = {}
         self.dirty = False
         self.load_all_to_memory()
 
@@ -28,9 +28,9 @@ class AnswerManager:
             self.precise_data = self._safe_load(self.precise_file_path, {})
             self.fuzzy_data = self._safe_load(self.fuzzy_file_path, {})
 
-    def _safe_load(self, path: str, default: Dict[str, str]) -> Dict[str, str]:
+    def _safe_load(self, path: str, default: dict[str, str]) -> dict[str, str]:
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data: Any = json.load(f)
             return data if isinstance(data, dict) else default
         except (FileNotFoundError, json.JSONDecodeError):
@@ -39,7 +39,7 @@ class AnswerManager:
         except Exception:
             return default
 
-    def _save_file(self, path: str, data: Dict[str, str]) -> bool:
+    def _save_file(self, path: str, data: dict[str, str]) -> bool:
         temp_file = path + ".tmp"
         try:
             with open(temp_file, "w", encoding="utf-8") as f:
@@ -63,19 +63,19 @@ class AnswerManager:
                 self.dirty = False
             return precise_success and fuzzy_success
 
-    def load_all_data(self) -> Dict[str, str]:
+    def load_all_data(self) -> dict[str, str]:
         with self.lock:
             all_data = self.precise_data.copy()
             all_data.update(self.fuzzy_data)
             return all_data
 
-    def save_precise_data(self, data: Dict[str, str]) -> bool:
+    def save_precise_data(self, data: dict[str, str]) -> bool:
         with self.lock:
             self.precise_data = data
             self.dirty = True
         return self.save_if_dirty()
 
-    def save_fuzzy_data(self, data: Dict[str, str]) -> bool:
+    def save_fuzzy_data(self, data: dict[str, str]) -> bool:
         with self.lock:
             self.fuzzy_data = data
             self.dirty = True
@@ -137,7 +137,7 @@ class AnswerManager:
             self.dirty = True
         return self.save_if_dirty()
 
-    def search_precise(self, question: str) -> Optional[str]:
+    def search_precise(self, question: str) -> str | None:
         if not question:
             return None
         question_processed = self._preprocess_text(question.lower())
@@ -148,7 +148,7 @@ class AnswerManager:
                 return answer
         return None
 
-    def search_fuzzy(self, text: str) -> Optional[str]:
+    def search_fuzzy(self, text: str) -> str | None:
         if not text:
             return None
         text_lower = text.lower()

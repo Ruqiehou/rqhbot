@@ -5,7 +5,6 @@ pintu 插件 - 九宫格拼图游戏接口
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from sdk.core import MessageSegment
 from sdk.core.events import GroupMessageEvent
@@ -15,7 +14,6 @@ from .logic import (
     CORRECT_ORDER,
     HELP_TEXT,
     GameService,
-    GameSession,
 )
 
 PLUGIN_DIR = Path(__file__).resolve().parent
@@ -35,7 +33,7 @@ class PintuPlugin(PluginBase):
         self.author = "pintu"
         self.game = GameService()
 
-    async def on_load(self, api, event_bus, plugin_dir: Optional[Path] = None) -> None:
+    async def on_load(self, api, event_bus, plugin_dir: Path | None = None) -> None:
         await super().on_load(api, event_bus, plugin_dir)
         print(f"{self.name} 插件已加载 (v{self.version})")
 
@@ -48,7 +46,6 @@ class PintuPlugin(PluginBase):
             return
 
         group_id = event.group_id
-        user_id = event.user_id
 
         if text in {"帮助", "/help"}:
             await self.api.send_group_message(group_id, HELP_TEXT)
@@ -328,7 +325,7 @@ class PintuPlugin(PluginBase):
         group_id: int,
         image_path: Path,
         text: str,
-        at_user_id: Optional[int] = None,
+        at_user_id: int | None = None,
     ) -> None:
         try:
             await self.api.send_group_message(

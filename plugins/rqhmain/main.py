@@ -4,25 +4,25 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
-from sdk.pluginsystem import PluginBase, filter_registry
 from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
+from sdk.pluginsystem import PluginBase, filter_registry
 
 # ==================== 功能层导入 ====================
-from .abcapi import WeatherAPI, NewsAPI
+from .abcapi import NewsAPI, WeatherAPI
 from .logic import (
-    HELP_TEXT,
-    WEATHER_KEYWORDS,
-    NEWS_KEYWORDS,
     FORTUNE_KEYWORDS,
     HELP_KEYWORDS,
-    build_fortune_segments,
-    build_weather_segments,
+    HELP_TEXT,
+    NEWS_KEYWORDS,
+    WEATHER_KEYWORDS,
     build_forecast_segments,
+    build_fortune_segments,
     build_news_segments,
-    extract_city_from_weather,
+    build_weather_segments,
     extract_city_from_forecast,
+    extract_city_from_weather,
     match_keyword,
 )
 
@@ -44,8 +44,8 @@ class RqhmainPlugin(PluginBase):
         self.description = "综合插件 - 运势、随机图、天气、新闻、IP查询等功能"
         self.author = "rqh"
         self.enabled = True
-        self.config: Dict[str, Any] = {}
-        self._last_network_call: Dict[Any, float] = {}
+        self.config: dict[str, Any] = {}
+        self._last_network_call: dict[Any, float] = {}
 
     async def on_load(self, api, event_bus, plugin_dir=None):
         await super().on_load(api, event_bus, plugin_dir)
@@ -114,7 +114,7 @@ class RqhmainPlugin(PluginBase):
         self,
         event: Any,
         raw_message: str,
-        group_id: Optional[int],
+        group_id: int | None,
     ) -> None:
         if "天气" in raw_message or "气温" in raw_message:
             city = extract_city_from_weather(raw_message)
@@ -178,7 +178,7 @@ class RqhmainPlugin(PluginBase):
         self,
         event: Any,
         raw_message: str,
-        group_id: Optional[int],
+        group_id: int | None,
     ) -> None:
         if not self._allow_network_call(event):
             await self._reply(event, group_id, RATE_LIMIT_TEXT)
@@ -197,7 +197,7 @@ class RqhmainPlugin(PluginBase):
 
         await self._reply(event, group_id, msg)
 
-    async def _handle_fortune(self, event: Any, group_id: Optional[int]) -> None:
+    async def _handle_fortune(self, event: Any, group_id: int | None) -> None:
         try:
             segments = build_fortune_segments()
             await self._reply_segments(event, group_id, segments)
@@ -209,14 +209,14 @@ class RqhmainPlugin(PluginBase):
         self,
         event: Any,
         raw_message: str,
-        group_id: Optional[int],
+        group_id: int | None,
     ) -> None:
         if match_keyword(raw_message, HELP_KEYWORDS):
             await self._reply(event, group_id, HELP_TEXT)
 
     # ==================== 回复辅助 ====================
 
-    async def _reply(self, event: Any, group_id: Optional[int], msg: str) -> None:
+    async def _reply(self, event: Any, group_id: int | None, msg: str) -> None:
         if group_id:
             await self.api.send_group_message(group_id=group_id, message=msg)
         else:
@@ -225,7 +225,7 @@ class RqhmainPlugin(PluginBase):
     async def _reply_segments(
         self,
         event: Any,
-        group_id: Optional[int],
+        group_id: int | None,
         segments: list,
     ) -> None:
         if group_id:

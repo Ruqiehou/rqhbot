@@ -9,9 +9,9 @@
 5. 数据目录迁移功能
 """
 
-import os
 import json
 import logging
+import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class SpeechConfig:
         """从 JSON 文件加载配置"""
         if os.path.exists(self.CONFIG_FILE):
             try:
-                with open(self.CONFIG_FILE, 'r', encoding='utf-8') as f:
+                with open(self.CONFIG_FILE, encoding='utf-8') as f:
                     config = json.load(f)
                 groups = set(str(g) for g in config.get("allowed_groups", []))
                 admins = set(str(u) for u in config.get("admin_users", []))
@@ -115,15 +115,15 @@ class SpeechConfig:
             logger.error(f"保存配置到 JSON 失败: {e}")
 
     def _load_allowed_groups(self):
-        groups, admins, operators = self._load_config_from_json()
+        groups, _admins, _operators = self._load_config_from_json()
         return groups
 
     def _load_admin_users(self):
-        groups, admins, operators = self._load_config_from_json()
+        _groups, admins, _operators = self._load_config_from_json()
         return admins
 
     def _load_operator_users(self):
-        groups, admins, operators = self._load_config_from_json()
+        _groups, _admins, operators = self._load_config_from_json()
         return operators
 
     def add_allowed_group(self, group_id):

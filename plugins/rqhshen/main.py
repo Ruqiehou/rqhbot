@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from sdk.core.events import GroupMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
@@ -12,12 +12,12 @@ from sdk.pluginsystem import PluginBase, filter_registry
 # ==================== 功能自主导入 ====================
 from . import game
 from .game import (
+    CULTIVATE_KEYWORDS,
     RANK_KEYWORDS,
     STATS_KEYWORDS,
-    CULTIVATE_KEYWORDS,
-    get_help_text,
     build_player_stats_msg,
     build_player_status_msg,
+    get_help_text,
 )
 
 logger = logging.getLogger("rqhshen")
@@ -35,7 +35,7 @@ class RqhshenPlugin(PluginBase):
         self.cultivation_system = game.CultivationSystem()
         self.allowed_groups = set()
         self.admin_users = set()
-        self.config: Dict[str, Any] = {}
+        self.config: dict[str, Any] = {}
 
     async def on_load(self, api, event_bus, plugin_dir=None):
         await super().on_load(api, event_bus, plugin_dir)

@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from sdk.core.event_bus import EventBus
 from sdk.core.events import (
     BaseEvent,
@@ -29,7 +27,7 @@ class TestMroDispatch:
     async def test_base_notice_subscription_receives_subclass(self) -> None:
         """订阅 NoticeEvent 应收到 PokeNotice"""
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: NoticeEvent) -> None:
             received.append(event)
@@ -42,7 +40,7 @@ class TestMroDispatch:
 
     async def test_base_notice_subscription_receives_group_increase(self) -> None:
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: NoticeEvent) -> None:
             received.append(event)
@@ -56,7 +54,7 @@ class TestMroDispatch:
     async def test_base_request_subscription_receives_subclass(self) -> None:
         """订阅 RequestEvent 应收到 FriendRequestEvent"""
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: RequestEvent) -> None:
             received.append(event)
@@ -69,7 +67,7 @@ class TestMroDispatch:
 
     async def test_concrete_subscription_still_works(self) -> None:
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: PokeNotice) -> None:
             received.append(event)
@@ -82,7 +80,7 @@ class TestMroDispatch:
     async def test_handler_for_two_matching_classes_runs_once(self) -> None:
         """同一处理器同时订阅子类和基类时只运行一次（去重）"""
         bus = EventBus()
-        calls: List[str] = []
+        calls: list[str] = []
 
         async def handler(event: NoticeEvent) -> None:
             calls.append("called")
@@ -96,7 +94,7 @@ class TestMroDispatch:
     async def test_unrelated_base_handler_not_called(self) -> None:
         """NoticeEvent 的订阅者不应收到 GroupMessageEvent"""
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: NoticeEvent) -> None:
             received.append(event)
@@ -108,7 +106,7 @@ class TestMroDispatch:
 
     async def test_concrete_and_base_both_run(self) -> None:
         bus = EventBus()
-        calls: List[str] = []
+        calls: list[str] = []
 
         async def concrete_handler(event: PokeNotice) -> None:
             calls.append("concrete")
@@ -125,7 +123,7 @@ class TestMroDispatch:
     async def test_unsubscribe_base_stops_subclass_delivery(self) -> None:
         """unsubscribe 基类后，子类事件不再送达"""
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def handler(event: NoticeEvent) -> None:
             received.append(event)
@@ -139,7 +137,7 @@ class TestMroDispatch:
     async def test_unsubscribe_concrete_keeps_base(self) -> None:
         """unsubscribe 子类不影响基类订阅"""
         bus = EventBus()
-        received: List[BaseEvent] = []
+        received: list[BaseEvent] = []
 
         async def concrete_handler(event: PokeNotice) -> None:
             received.append("concrete")
@@ -157,7 +155,7 @@ class TestMroDispatch:
     async def test_unsubscribe_during_dispatch_does_not_affect_inflight(self) -> None:
         """分发过程中的 unsubscribe 不影响本次分发（快照语义）"""
         bus = EventBus()
-        calls: List[str] = []
+        calls: list[str] = []
 
         async def second(event: NoticeEvent) -> None:
             calls.append("second")
@@ -176,7 +174,7 @@ class TestMroDispatch:
     async def test_subscribe_during_dispatch_does_not_affect_inflight(self) -> None:
         """分发过程中的 subscribe 不影响本次分发（快照语义）"""
         bus = EventBus()
-        calls: List[str] = []
+        calls: list[str] = []
 
         async def late(event: NoticeEvent) -> None:
             calls.append("late")
@@ -193,7 +191,7 @@ class TestMroDispatch:
     async def test_raising_handler_does_not_prevent_others(self) -> None:
         """一个抛异常的子类处理器不影响其他处理器"""
         bus = EventBus()
-        received: List[str] = []
+        received: list[str] = []
 
         async def bad_handler(event: NoticeEvent) -> None:
             raise ValueError("boom")
@@ -212,7 +210,7 @@ class TestMroDispatch:
     async def test_base_exception_handler_does_not_prevent_others(self) -> None:
         """非 Exception 的 BaseException 也不影响其他处理器（守卫）"""
         bus = EventBus()
-        received: List[str] = []
+        received: list[str] = []
 
         class Boom(BaseException):
             pass

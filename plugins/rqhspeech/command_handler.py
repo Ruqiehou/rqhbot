@@ -4,25 +4,25 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Tuple
+
 from sdk.core.events import GroupMessageEvent
 
-from .speech_config import SpeechConfig
 from .data_manager import (
-    user_manager, log_manager,
-    load_user_data, get_display_username,
-    user_exists, check_and_handle_week_transition
+    get_display_username,
+    load_user_data,
+    user_exists,
 )
+from .speech_config import SpeechConfig
 
 
 class CommandHandler:
     """命令处理器类 - 封装所有命令处理逻辑"""
-    
+
     def __init__(self, user_mgr, log_mgr, api=None):
         self.user_mgr = user_mgr
         self.log_mgr = log_mgr
         self.api = api
-    
+
     async def _reply(self, event: GroupMessageEvent, content: str) -> None:
         """回复消息（根据事件类型自动选择发送方式）"""
         if self.api is None:
@@ -165,15 +165,15 @@ class CommandHandler:
         today_count = stats["today"]
         week_total = stats["week_total"]
         daily_details = stats["daily_details"]
-        
+
         # 获取本月发言数
         month_total = self.user_mgr.get_user_month_count(user_id, group_id)
-        
+
         # 获取本年度发言数
         year_total = self.user_mgr.get_user_year_count(user_id, group_id)
 
         # 构建回复
-        result_text = f"📊 你的发言统计（本群）\n\n"
+        result_text = "📊 你的发言统计（本群）\n\n"
         result_text += f"   今日发言: {today_count} 条\n"
         result_text += f"   本周发言: {week_total} 条\n"
         result_text += f"   本月发言: {month_total} 条\n"
@@ -189,10 +189,10 @@ class CommandHandler:
                 ]
                 result_text += f"   {date} ({weekday}): {messages} 条\n"
 
-        result_text += f"\n📈 累计统计（本群）:\n"
+        result_text += "\n📈 累计统计（本群）:\n"
         result_text += f"   总发言数: {stats['total_messages']} 条\n"
         result_text += f"   活跃周数: {stats['total_weeks']} 周\n"
-        result_text += f"\n💪 继续努力！"
+        result_text += "\n💪 继续努力！"
 
         await self._reply(event, result_text)
         return True
@@ -208,7 +208,7 @@ class CommandHandler:
         ranking_text = self._format_ranking(rankings, "📊 发言周榜 (本群)", SpeechConfig.RANKING_WEEKLY_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_history_weekly_rank(self, event: GroupMessageEvent, group_id: str, m: str) -> bool:
         """处理历史周榜命令"""
         # 解析命令格式: 历史周榜 YYYY-MM-DD 或 历史周榜 W数字
@@ -216,25 +216,25 @@ class CommandHandler:
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用:\n历史周榜 YYYY-MM-DD（日期格式）\n或\n历史周榜 W数字（如 W06）")
             return True
-        
+
         week_identifier = parts[1]
-        
+
         # 获取历史周榜数据
         rankings, week_info = self.user_mgr.get_historical_weekly_rankings(group_id, week_identifier)
-        
+
         # 检查是否有错误信息
         if week_info in ["无效的周数", "周数格式错误", "日期格式错误，请使用 YYYY-MM-DD 格式"]:
             await self._reply(event, f"❌ {week_info}")
             return True
-        
+
         if not rankings:
             await self._reply(event, f"📅 {week_info} 暂无发言记录")
             return True
-        
+
         ranking_text = self._format_ranking(rankings, f"📊 {week_info} 发言周榜", SpeechConfig.RANKING_WEEKLY_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_monthly_rank(self, event: GroupMessageEvent, group_id: str) -> bool:
         """处理发言月榜命令"""
         rankings = self.user_mgr.get_monthly_rankings(group_id)
@@ -247,7 +247,7 @@ class CommandHandler:
         ranking_text = self._format_ranking(rankings, f"📊 发言月榜 ({now.year}年{now.month}月)", SpeechConfig.RANKING_MONTHLY_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_history_monthly_rank(self, event: GroupMessageEvent, group_id: str, m: str) -> bool:
         """处理历史月榜命令"""
         # 解析命令格式: 历史月榜 YYYY-MM-DD（月份起始日）
@@ -255,19 +255,19 @@ class CommandHandler:
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用: 历史月榜 YYYY-MM-DD")
             return True
-            
+
         target_date = parts[1]
-        
+
         # 验证日期格式
         try:
             target_datetime = datetime.strptime(target_date, "%Y-%m-%d")
         except ValueError:
             await self._reply(event, "❌ 日期格式错误，请使用 YYYY-MM-DD 格式")
             return True
-        
+
         # 获取指定月份的发言排行榜
         rankings = self.user_mgr.get_monthly_rankings_by_start_date(group_id, target_date)
-        
+
         if not rankings:
             year = target_datetime.year
             month = target_datetime.month
@@ -279,14 +279,14 @@ class CommandHandler:
         ranking_text = self._format_ranking(rankings, f"📊 {year}年{month}月 发言月榜", SpeechConfig.RANKING_MONTHLY_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_seasonal_rank(self, event: GroupMessageEvent, group_id: str) -> bool:
         """处理发言季榜命令"""
         current_date = datetime.now()
         current_season = (current_date.month - 1) // 3 + 1
         season_map = {1: "春季", 2: "夏季", 3: "秋季", 4: "冬季"}
         season_name = season_map[current_season]
-        
+
         rankings = self.user_mgr.get_seasonal_rankings(group_id)
 
         if not rankings:
@@ -296,7 +296,7 @@ class CommandHandler:
         ranking_text = self._format_ranking(rankings, f"📊 发言季榜 ({current_date.year}年{season_name})", SpeechConfig.RANKING_SEASONAL_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_yearly_rank(self, event: GroupMessageEvent, group_id: str) -> bool:
         """处理发言年榜命令"""
         rankings = self.user_mgr.get_yearly_rankings(group_id)
@@ -309,7 +309,7 @@ class CommandHandler:
         ranking_text = self._format_ranking(rankings, f"📊 发言年榜 ({current_year}年)", SpeechConfig.RANKING_YEARLY_TOP_N)
         await self._reply(event, ranking_text)
         return True
-    
+
     async def handle_history_yearly_rank(self, event: GroupMessageEvent, group_id: str, m: str) -> bool:
         """处理历史年榜命令"""
         # 解析命令格式: 历史年榜 YYYY
@@ -317,9 +317,9 @@ class CommandHandler:
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用: 历史年榜 YYYY")
             return True
-            
+
         target_year_str = parts[1]
-        
+
         # 验证年份格式
         try:
             target_year = int(target_year_str)
@@ -328,10 +328,10 @@ class CommandHandler:
         except ValueError:
             await self._reply(event, "❌ 年份格式错误，请使用 YYYY 格式（如 2026）")
             return True
-        
+
         # 获取指定年份的发言排行榜
         rankings = self.user_mgr.get_yearly_rankings(group_id, target_year)
-        
+
         if not rankings:
             await self._reply(event, f"{target_year}年 暂无发言记录")
             return True
@@ -375,10 +375,10 @@ class CommandHandler:
         """处理查询发言命令"""
         # 检查是否有 @用户
         at_segments = event.message.filter_at()
-        
+
         target_user_id = None
         search_type = ""
-        
+
         if at_segments:
             # 有 @用户，提取第一个被 @ 用户的 QQ号
             target_user_id = str(at_segments[0].qq)
@@ -393,14 +393,14 @@ class CommandHandler:
                 query_param = m[4:].strip()
             else:  # 查发言
                 query_param = m[3:].strip()
-            
+
             if not query_param:
                 await self._reply(event, "❌ 请提供查询参数\n格式1：查询发言 QQ号\n格式2：查询发言 用户名\n格式3：查询发言 @用户")
                 return True
-            
+
             # 判断是QQ号还是用户名
             is_qq = query_param.isdigit()
-            
+
             if is_qq:
                 # 通过QQ号查询
                 target_user_id = query_param
@@ -409,7 +409,7 @@ class CommandHandler:
                 # 通过用户名搜索
                 target_user_id = self.user_mgr.search_user_by_username(query_param)
                 search_type = "用户名"
-        
+
         # 验证用户是否存在
         if not target_user_id or not user_exists(target_user_id):
             if search_type == "@用户":
@@ -435,16 +435,16 @@ class CommandHandler:
         week_total = stats["week_total"]
         daily_details = stats["daily_details"]
         active_days = sum(1 for count in daily_details.values() if count > 0)
-        
+
         # 获取本月发言数
         month_total = self.user_mgr.get_user_month_count(target_user_id, group_id)
-        
+
         # 获取本年度发言数
         year_total = self.user_mgr.get_user_year_count(target_user_id, group_id)
 
         # 构建回复
         result_text = f"👤 用户 {target_username} ({target_user_id})\n\n"
-        result_text += f"📊 本群发言统计：\n"
+        result_text += "📊 本群发言统计：\n"
         result_text += f"   今日发言: {today_count} 条\n"
         result_text += f"   本周发言: {week_total} 条\n"
         result_text += f"   本月发言: {month_total} 条\n"
@@ -468,7 +468,7 @@ class CommandHandler:
         total_weeks = summary.get("total_weeks", 0)
         avg_per_week = summary.get("avg_messages_per_week", 0)
 
-        result_text += f"\n📈 累计统计:\n"
+        result_text += "\n📈 累计统计:\n"
         result_text += f"   总发言数: {total_messages} 条\n"
         result_text += f"   活跃周数: {total_weeks} 周\n"
         result_text += f"   周均发言: {avg_per_week} 条\n"
@@ -502,25 +502,25 @@ class CommandHandler:
         if delete_user_data(target_user_id):
             await self._reply(event, f"✅ 用户 {target_user_id} 已删除")
         else:
-            await self._reply(event, f"❌ 删除用户失败")
+            await self._reply(event, "❌ 删除用户失败")
 
         return True
 
     async def handle_auto_archive(self, event: GroupMessageEvent) -> bool:
         """处理自动归档命令（管理员或操作员可用）"""
         user_id = str(event.user_id)
-    
+
         # 检查权限（Admin和Operator都可以执行）
         if not SpeechConfig.is_any_admin(user_id):
             await self._reply(event, "❌ 你没有权限执行此操作")
             return True
-    
+
         await self._reply(event, "🔄 开始执行自动归档...")
-    
+
         # 执行自动归档
         from .archive_manager import auto_archive
         success, message = auto_archive()
-    
+
         if success:
             # 发送归档结果（只发送前 500 字，避免消息过长）
             if len(message) > 500:
@@ -529,258 +529,258 @@ class CommandHandler:
                 reply_message = f"✅ 自动归档完成\n\n{message}"
         else:
             reply_message = f"❌ 自动归档失败\n\n{message}"
-    
+
         await self._reply(event, reply_message)
         return True
-    
+
     # ========== 群管理命令 ==========
-    
+
     async def handle_add_group(self, event: GroupMessageEvent, m: str) -> bool:
         """处理加白名单命令（管理员专用）"""
         user_id = str(event.user_id)
-    
+
         # 检查管理员权限（只有Admin可以管理白名单）
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以执行此操作")
             return True
-    
+
         # 提取群号
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：加白名单 QQ 群号")
             return True
-    
+
         group_id = parts[1]
-    
+
         if not group_id.isdigit():
             await self._reply(event, "❌ 群号必须是数字")
             return True
-    
+
         # 添加到白名单
         SpeechConfig.add_allowed_group(group_id)
         await self._reply(event, f"✅ 已将群 {group_id} 加入白名单")
         return True
-    
+
     async def handle_remove_group(self, event: GroupMessageEvent, m: str) -> bool:
         """处理移除白名单命令（管理员专用）"""
         user_id = str(event.user_id)
-    
+
         # 检查管理员权限（只有Admin可以管理白名单）
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以执行此操作")
             return True
-    
+
         # 提取群号
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：移除白名单 QQ 群号")
             return True
-    
+
         group_id = parts[1]
-    
+
         if not group_id.isdigit():
             await self._reply(event, "❌ 群号必须是数字")
             return True
-    
+
         # 从白名单移除
         SpeechConfig.remove_allowed_group(group_id)
         await self._reply(event, f"✅ 已将群 {group_id} 移出白名单")
         return True
-    
+
     async def handle_view_whitelist(self, event: GroupMessageEvent) -> bool:
         """处理查看白名单命令（管理员或操作员可用）"""
         user_id = str(event.user_id)
-    
+
         # 检查权限（Admin和Operator都可以查看）
         if not SpeechConfig.is_any_admin(user_id):
             await self._reply(event, "❌ 你没有权限执行此操作")
             return True
-    
+
         # 获取白名单列表
         allowed_groups = SpeechConfig.get_allowed_groups_list()
-            
+
         if not allowed_groups:
             await self._reply(event, "📋 当前白名单为空\n💡 使用「加白名单 QQ 群号」添加")
             return True
-    
+
         # 构建回复
         reply_text = f"📋 白名单列表 ({len(allowed_groups)} 个群)\n\n"
         for i, gid in enumerate(sorted(allowed_groups), 1):
             reply_text += f"{i}. {gid}\n"
-    
+
         reply_text += "\n💡 使用「移除白名单 QQ 群号」移除"
         await self._reply(event, reply_text)
         return True
-    
+
     async def handle_toggle_whitelist_mode(self, event: GroupMessageEvent) -> bool:
         """处理切换白名单模式命令（管理员专用）"""
         user_id = str(event.user_id)
-    
+
         # 检查管理员权限（只有Admin可以切换模式）
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以执行此操作")
             return True
-    
+
         # 切换模式
         SpeechConfig.USE_WHITELIST_MODE = not SpeechConfig.USE_WHITELIST_MODE
-            
+
         # 保存配置
         SpeechConfig._save_allowed_groups()
-    
+
         mode_text = "✅ 已开启" if SpeechConfig.USE_WHITELIST_MODE else "❌ 已关闭"
         mode_desc = "仅白名单群可用" if SpeechConfig.USE_WHITELIST_MODE else "所有群可用"
-            
+
         await self._reply(event, f"{mode_text}白名单模式\n当前状态：{mode_desc}")
         return True
-    
+
     # ========== 权限管理命令（仅Admin可用） ==========
-    
+
     async def handle_add_admin(self, event: GroupMessageEvent, m: str) -> bool:
         """处理添加管理员命令（仅Admin可用）"""
         user_id = str(event.user_id)
-        
+
         # 检查是否为管理员
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以管理权限")
             return True
-        
+
         # 提取用户ID
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：发言添加管理员 QQ号")
             return True
-        
+
         target_user_id = parts[1]
-        
+
         if not target_user_id.isdigit():
             await self._reply(event, "❌ QQ号必须是数字")
             return True
-        
+
         # 如果已经是操作员，先移除
         if SpeechConfig.is_operator(target_user_id):
             SpeechConfig.remove_operator_user(target_user_id)
-        
+
         # 添加为管理员
         SpeechConfig.add_admin_user(target_user_id)
         await self._reply(event, f"✅ 已将 {target_user_id} 添加为管理员")
         return True
-    
+
     async def handle_remove_admin(self, event: GroupMessageEvent, m: str) -> bool:
         """处理移除管理员命令（仅Admin可用）"""
         user_id = str(event.user_id)
-        
+
         # 检查是否为管理员
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以管理权限")
             return True
-        
+
         # 提取用户ID
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：发言移除管理员 QQ号")
             return True
-        
+
         target_user_id = parts[1]
-        
+
         if not target_user_id.isdigit():
             await self._reply(event, "❌ QQ号必须是数字")
             return True
-        
+
         # 移除管理员
         SpeechConfig.remove_admin_user(target_user_id)
         await self._reply(event, f"✅ 已移除管理员 {target_user_id}")
         return True
-    
+
     async def handle_view_admins(self, event: GroupMessageEvent) -> bool:
         """处理查看管理员列表命令"""
         user_id = str(event.user_id)
-        
+
         # 检查权限
         if not SpeechConfig.is_any_admin(user_id):
             await self._reply(event, "❌ 你没有权限执行此操作")
             return True
-        
+
         admins = list(SpeechConfig.ADMIN_USERS)
-        
+
         if not admins:
             await self._reply(event, "📝 暂无管理员")
             return True
-        
+
         admin_list = "\n".join([f"- {uid}" for uid in sorted(admins)])
         await self._reply(event, f"👑 管理员名单：\n{admin_list}")
         return True
-    
+
     async def handle_add_operator(self, event: GroupMessageEvent, m: str) -> bool:
         """处理添加操作员命令（仅Admin可用）"""
         user_id = str(event.user_id)
-        
+
         # 检查是否为管理员
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以管理权限")
             return True
-        
+
         # 提取用户ID
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：发言添加操作员 QQ号")
             return True
-        
+
         target_user_id = parts[1]
-        
+
         if not target_user_id.isdigit():
             await self._reply(event, "❌ QQ号必须是数字")
             return True
-        
+
         # 如果已经是管理员，先移除
         if SpeechConfig.is_admin(target_user_id):
             SpeechConfig.remove_admin_user(target_user_id)
-        
+
         # 添加为操作员
         SpeechConfig.add_operator_user(target_user_id)
         await self._reply(event, f"✅ 已将 {target_user_id} 添加为操作员")
         return True
-    
+
     async def handle_remove_operator(self, event: GroupMessageEvent, m: str) -> bool:
         """处理移除操作员命令（仅Admin可用）"""
         user_id = str(event.user_id)
-        
+
         # 检查是否为管理员
         if not SpeechConfig.is_admin(user_id):
             await self._reply(event, "❌ 只有管理员可以管理权限")
             return True
-        
+
         # 提取用户ID
         parts = m.split()
         if len(parts) != 2:
             await self._reply(event, "❌ 格式错误，请使用：发言移除操作员 QQ号")
             return True
-        
+
         target_user_id = parts[1]
-        
+
         if not target_user_id.isdigit():
             await self._reply(event, "❌ QQ号必须是数字")
             return True
-        
+
         # 移除操作员
         SpeechConfig.remove_operator_user(target_user_id)
         await self._reply(event, f"✅ 已移除操作员 {target_user_id}")
         return True
-    
+
     async def handle_view_operators(self, event: GroupMessageEvent) -> bool:
         """处理查看操作员列表命令"""
         user_id = str(event.user_id)
-        
+
         # 检查权限
         if not SpeechConfig.is_any_admin(user_id):
             await self._reply(event, "❌ 你没有权限执行此操作")
             return True
-        
+
         operators = list(SpeechConfig.OPERATOR_USERS)
-        
+
         if not operators:
             await self._reply(event, "📝 暂无操作员")
             return True
-        
+
         operator_list = "\n".join([f"- {uid}" for uid in sorted(operators)])
         await self._reply(event, f"🔧 操作员名单：\n{operator_list}")
         return True

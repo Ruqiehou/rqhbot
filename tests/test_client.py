@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-import time
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from sdk.core.client import NapCatClient, MessageSegment
-
+from sdk.core.client import MessageSegment, NapCatClient
 
 # ==================== 测试夹具 ====================
 
@@ -76,7 +75,7 @@ class TestNapCatClient:
     async def test_call_success(self, client: NapCatClient) -> None:
         """call() 正常返回 —— send 后立刻 resolve 对应 future"""
         echo_ready = asyncio.Event()
-        captured_echo_id: List[str] = []
+        captured_echo_id: list[str] = []
 
         async def fake_send(msg: str) -> None:
             data = json.loads(msg)
@@ -101,10 +100,8 @@ class TestNapCatClient:
             )
         finally:
             bg.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await bg
-            except asyncio.CancelledError:
-                pass
 
         assert result == {"result": 42}
 
@@ -118,8 +115,10 @@ class TestNapCatClient:
             call_count += 1
 
         client.ws.send = fake_send  # type: ignore[assignment]
+        # 缩短超时，避免用例等待默认的 30 秒
+        client._call_timeout = 0.01
 
-        with pytest.raises(Exception):
+        with pytest.raises(TimeoutError):
             await client.call(
                 "fail_action", max_retries=2, retry_delay=0.01
             )
@@ -130,7 +129,7 @@ class TestNapCatClient:
     async def test_echo_map_eviction(self, client: NapCatClient) -> None:
         """echo_map 超过上限时自动淘汰最旧条目"""
         client._echo_maxsize = 3
-        filled: Dict[str, asyncio.Future[Any]] = {}
+        filled: dict[str, asyncio.Future[Any]] = {}
         for i in range(5):
             fut: asyncio.Future[Any] = asyncio.Future()
             key = f"echo-{i}"
@@ -153,9 +152,9 @@ class TestNapCatClient:
     @pytest.mark.asyncio
     async def test_on_message_dedup(self, client: NapCatClient) -> None:
         """同一 handler 不重复注册"""
-        calls: List[str] = []
+        calls: list[str] = []
 
-        async def handler(event: Dict[str, Any]) -> None:
+        async def handler(event: dict[str, Any]) -> None:
             calls.append("called")
 
         client.on_message("group")(handler)
@@ -191,9 +190,9 @@ class TestNapCatClient:
         self, client: NapCatClient
     ) -> None:
         """send_group_message 构建正确的消息段"""
-        captured: Dict[str, Any] = {}
+        captured: dict[str, Any] = {}
 
-        async def fake_call(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        async def fake_call(action: str, params: dict[str, Any]) -> dict[str, Any]:
             captured["action"] = action
             captured["params"] = params
             return {"status": "ok"}
@@ -218,9 +217,9 @@ class TestNapCatClient:
     @pytest.mark.asyncio
     async def test_send_event_message_group(self, client: NapCatClient) -> None:
         """send_event_message 自动识别群消息"""
-        captured: Dict[str, Any] = {}
+        captured: dict[str, Any] = {}
 
-        async def fake_call(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        async def fake_call(action: str, params: dict[str, Any]) -> dict[str, Any]:
             captured["action"] = action
             captured["params"] = params
             return {"status": "ok"}
@@ -239,9 +238,9 @@ class TestNapCatClient:
     @pytest.mark.asyncio
     async def test_send_event_message_private(self, client: NapCatClient) -> None:
         """send_event_message 自动识别私聊消息"""
-        captured: Dict[str, Any] = {}
+        captured: dict[str, Any] = {}
 
-        async def fake_call(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        async def fake_call(action: str, params: dict[str, Any]) -> dict[str, Any]:
             captured["action"] = action
             captured["params"] = params
             return {"status": "ok"}

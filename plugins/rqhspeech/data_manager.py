@@ -7,19 +7,19 @@
   - data/checkin/<user_id>.json     签到数据
 """
 
-import os
 import json
-import threading
 import logging
+import os
+import threading
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any
 
-from .speech_config import SpeechConfig
 from .checkin_manager import checkin_manager
+from .speech_config import SpeechConfig
 
 logger = logging.getLogger(__name__)
 
-_USER_LOCKS: Dict[str, threading.Lock] = {}
+_USER_LOCKS: dict[str, threading.Lock] = {}
 _USER_LOCKS_GUARD = threading.Lock()
 
 
@@ -50,7 +50,7 @@ def get_user_file(user_id: str) -> str:
     return os.path.join(SpeechConfig.USERS_DIR, f"user_{user_id}.json")
 
 
-def _new_user(user_id: str, username: str = "") -> Dict[str, Any]:
+def _new_user(user_id: str, username: str = "") -> dict[str, Any]:
     now = _now_str()
     return {
         "user_id": user_id,
@@ -64,9 +64,9 @@ def _new_user(user_id: str, username: str = "") -> Dict[str, Any]:
     }
 
 
-def _refresh_summary(data: Dict[str, Any]) -> None:
+def _refresh_summary(data: dict[str, Any]) -> None:
     """根据 weekly_records 重新计算 summary 缓存"""
-    week_totals: Dict[str, int] = {}
+    week_totals: dict[str, int] = {}
     for weeks in (data.get("weekly_records") or {}).values():
         if not isinstance(weeks, dict):
             continue
@@ -96,7 +96,7 @@ def _refresh_summary(data: Dict[str, Any]) -> None:
     }
 
 
-def _write_raw(user_id: str, data: Dict[str, Any]) -> bool:
+def _write_raw(user_id: str, data: dict[str, Any]) -> bool:
     """原子写入用户 JSON 文件"""
     path = get_user_file(user_id)
     tmp_path = path + ".tmp"
@@ -116,13 +116,13 @@ def _write_raw(user_id: str, data: Dict[str, Any]) -> bool:
         return False
 
 
-def _read_raw(user_id: str) -> Optional[Dict[str, Any]]:
+def _read_raw(user_id: str) -> dict[str, Any] | None:
     """读取用户 JSON 文件"""
     path = get_user_file(user_id)
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return None
@@ -151,7 +151,7 @@ def iter_user_data():
             yield user_id, data
 
 
-def load_user_data(user_id: str) -> Optional[Dict[str, Any]]:
+def load_user_data(user_id: str) -> dict[str, Any] | None:
     """读取用户数据（返回兼容旧接口的结构）"""
     data = _read_raw(user_id)
     if data is None:
@@ -173,7 +173,7 @@ def load_user_data(user_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def save_user_data(user_id: str, data: Dict[str, Any]) -> bool:
+def save_user_data(user_id: str, data: dict[str, Any]) -> bool:
     """保存用户数据（兼容接口）"""
     if not data:
         return False
@@ -191,7 +191,7 @@ def save_user_data(user_id: str, data: Dict[str, Any]) -> bool:
         return False
 
 
-def get_display_username(user_info: Dict[str, Any], default: str = "未知用户") -> str:
+def get_display_username(user_info: dict[str, Any], default: str = "未知用户") -> str:
     if not user_info:
         return default
     return (
@@ -220,13 +220,13 @@ def delete_user_data(user_id: str) -> bool:
         return False
 
 
-def check_and_handle_week_transition(user_data: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
+def check_and_handle_week_transition(user_data: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """兼容接口：返回原数据和当前周标识"""
     now = datetime.now()
     return user_data, _week_key_of(now.strftime("%Y-%m-%d"))
 
 
-def _parse_week_key(identifier: str) -> Tuple[Optional[str], str]:
+def _parse_week_key(identifier: str) -> tuple[str | None, str]:
     """解析周标识符，返回 (week_key, week_info)"""
     if identifier.startswith(("W", "w")):
         try:
@@ -266,7 +266,7 @@ def _parse_week_key(identifier: str) -> Tuple[Optional[str], str]:
 class UserDataManager:
     """用户数据管理器 —— 全部基于 JSON 文件"""
 
-    def create_user(self, user_id: str, username: str) -> Dict[str, Any]:
+    def create_user(self, user_id: str, username: str) -> dict[str, Any]:
         """创建新用户（已存在则直接返回）"""
         with _get_lock(user_id):
             data = _read_raw(user_id)
@@ -313,7 +313,7 @@ class UserDataManager:
         week_key = _week_key_of(datetime.now().strftime("%Y-%m-%d"))
         return int((data.get("weekly_records", {}).get(str(group_id), {}) or {}).get(week_key, 0))
 
-    def get_user_group_stats(self, user_id: str, group_id: str) -> Dict[str, Any]:
+    def get_user_group_stats(self, user_id: str, group_id: str) -> dict[str, Any]:
         data = _read_raw(user_id) or {}
         group_id = str(group_id)
         dates = data.get("daily_records", {}).get(group_id, {}) or {}
@@ -336,7 +336,7 @@ class UserDataManager:
             "total_weeks": len({_week_key_of(d) for d in dates}),
         }
 
-    def get_user_month_count(self, user_id: str, group_id: str, year: int = None, month: int = None) -> int:
+    def get_user_month_count(self, user_id: str, group_id: str, year: int | None = None, month: int | None = None) -> int:
         if year is None or month is None:
             now = datetime.now()
             year = year or now.year
@@ -346,7 +346,7 @@ class UserDataManager:
         dates = data.get("daily_records", {}).get(str(group_id), {}) or {}
         return sum(int(c) for d, c in dates.items() if d.startswith(prefix))
 
-    def get_user_year_count(self, user_id: str, group_id: str, year: int = None) -> int:
+    def get_user_year_count(self, user_id: str, group_id: str, year: int | None = None) -> int:
         if year is None:
             year = datetime.now().year
         prefix = f"{year:04d}-"
@@ -354,7 +354,7 @@ class UserDataManager:
         dates = data.get("daily_records", {}).get(str(group_id), {}) or {}
         return sum(int(c) for d, c in dates.items() if d.startswith(prefix))
 
-    def get_daily_rankings(self, group_id: str, date_str: str = None) -> List[Tuple[str, int]]:
+    def get_daily_rankings(self, group_id: str, date_str: str | None = None) -> list[tuple[str, int]]:
         if date_str is None:
             date_str = datetime.now().strftime("%Y-%m-%d")
         group_id = str(group_id)
@@ -366,7 +366,7 @@ class UserDataManager:
         rankings.sort(key=lambda x: x[1], reverse=True)
         return rankings
 
-    def get_weekly_rankings(self, group_id: str) -> List[Tuple[str, int]]:
+    def get_weekly_rankings(self, group_id: str) -> list[tuple[str, int]]:
         week_key = _week_key_of(datetime.now().strftime("%Y-%m-%d"))
         group_id = str(group_id)
         rankings = []
@@ -377,7 +377,7 @@ class UserDataManager:
         rankings.sort(key=lambda x: x[1], reverse=True)
         return rankings
 
-    def get_historical_weekly_rankings(self, group_id: str, week_identifier: str) -> Tuple[List[Tuple[str, int]], str]:
+    def get_historical_weekly_rankings(self, group_id: str, week_identifier: str) -> tuple[list[tuple[str, int]], str]:
         week_key, week_info = _parse_week_key(week_identifier)
         if week_key is None:
             return [], week_info
@@ -390,7 +390,7 @@ class UserDataManager:
         rankings.sort(key=lambda x: x[1], reverse=True)
         return rankings, week_info
 
-    def get_monthly_rankings(self, group_id: str, year: int = None, month: int = None) -> List[Tuple[str, int]]:
+    def get_monthly_rankings(self, group_id: str, year: int | None = None, month: int | None = None) -> list[tuple[str, int]]:
         if year is None or month is None:
             now = datetime.now()
             year = year or now.year
@@ -398,19 +398,19 @@ class UserDataManager:
         prefix = f"{year:04d}-{month:02d}-"
         return self._rankings_by_date_prefix(group_id, prefix)
 
-    def get_monthly_rankings_by_start_date(self, group_id: str, start_date_str: str) -> List[Tuple[str, int]]:
+    def get_monthly_rankings_by_start_date(self, group_id: str, start_date_str: str) -> list[tuple[str, int]]:
         try:
             dt = datetime.strptime(start_date_str, "%Y-%m-%d")
         except ValueError:
             return []
         return self.get_monthly_rankings(group_id, dt.year, dt.month)
 
-    def get_yearly_rankings(self, group_id: str, year: int = None) -> List[Tuple[str, int]]:
+    def get_yearly_rankings(self, group_id: str, year: int | None = None) -> list[tuple[str, int]]:
         if year is None:
             year = datetime.now().year
         return self._rankings_by_date_prefix(group_id, f"{year:04d}-")
 
-    def get_seasonal_rankings(self, group_id: str, year: int = None, season: int = None) -> List[Tuple[str, int]]:
+    def get_seasonal_rankings(self, group_id: str, year: int | None = None, season: int | None = None) -> list[tuple[str, int]]:
         if year is None:
             year = datetime.now().year
         if season is None:
@@ -435,7 +435,7 @@ class UserDataManager:
         rankings.sort(key=lambda x: x[1], reverse=True)
         return rankings
 
-    def _rankings_by_date_prefix(self, group_id: str, prefix: str) -> List[Tuple[str, int]]:
+    def _rankings_by_date_prefix(self, group_id: str, prefix: str) -> list[tuple[str, int]]:
         group_id = str(group_id)
         rankings = []
         for user_id, data in iter_user_data():
@@ -461,13 +461,13 @@ class UserDataManager:
             logger.error(f"设置用户名失败 {user_id}: {e}")
             return False
 
-    def search_user_by_username(self, username: str) -> Optional[str]:
+    def search_user_by_username(self, username: str) -> str | None:
         for user_id, data in iter_user_data():
             if data.get("username") == username:
                 return user_id
         return None
 
-    def check_in(self, user_id: str, username: str = "") -> Dict[str, Any]:
+    def check_in(self, user_id: str, username: str = "") -> dict[str, Any]:
         """每日签到（签到数据以 JSON 文件存放于插件 data/checkin 目录）"""
         return checkin_manager.check_in(user_id, username)
 

@@ -12,16 +12,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 import types
 from unittest.mock import MagicMock
 
-import pytest
-
 from sdk.core.event_bus import EventBus
 from sdk.pluginsystem.plugin_manager import HotReloadPluginManager
-
 
 # ==================== 工具 ====================
 
@@ -145,10 +143,8 @@ async def test_concurrent_reload_registers_single_instance(tmp_path) -> None:
 
     # 未修复时两次 on_load 会同时进入；已修复时同一插件的生命周期被串行化，
     # 因此这里只等待一个有限的超时，随后统一放行。
-    try:
+    with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(two_arrived.wait(), timeout=1.0)
-    except asyncio.TimeoutError:
-        pass
 
     gate.set()
     results = await asyncio.gather(first, second)

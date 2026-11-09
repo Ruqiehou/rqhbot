@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, AsyncIterator, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from sdk.core.client import NapCatClient
-
 
 # ==================== 夹具 ====================
 
@@ -36,11 +35,11 @@ def client() -> NapCatClient:
 class _ScriptedSocket:
     """可控的 websocket 替身：按脚本 yield 消息，之后结束 async for"""
 
-    def __init__(self, messages: List[str]) -> None:
+    def __init__(self, messages: list[str]) -> None:
         self._messages = list(messages)
         self._first_yield = asyncio.Event()
 
-    def __aiter__(self) -> "_ScriptedSocket":
+    def __aiter__(self) -> _ScriptedSocket:
         return self
 
     async def __anext__(self) -> str:
@@ -56,7 +55,7 @@ class _ScriptedSocket:
 
 async def test_send_action_not_retried(client: NapCatClient) -> None:
     """send_group_msg 超时后绝不能重发（否则用户收到重复消息）"""
-    sends: List[Dict[str, Any]] = []
+    sends: list[dict[str, Any]] = []
 
     async def fake_send(payload: str) -> None:
         sends.append(json.loads(payload))
@@ -152,10 +151,10 @@ async def test_process_messages_drains_queue_after_disconnect(
     client: NapCatClient,
 ) -> None:
     """socket 关闭后，已入队的消息必须被处理而不是静默丢弃"""
-    processed: List[Dict[str, Any]] = []
+    processed: list[dict[str, Any]] = []
     done = asyncio.Event()
 
-    async def handler(data: Dict[str, Any]) -> None:
+    async def handler(data: dict[str, Any]) -> None:
         processed.append(data)
         done.set()
 

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-from typing import Generator
-
-import pytest
+from typing import TYPE_CHECKING
 
 from sdk.config.config import Config, ConfigManager
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pytest
 
 
 class TestConfigManager:

@@ -12,10 +12,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from plugins.rqhshen import game
-from plugins.rqhshen.game import Cultivator, CultivationSystem
+from plugins.rqhshen.game import CultivationSystem, Cultivator
 from plugins.rqhshen.main import RqhshenPlugin
 from sdk.core.events import GroupMessageEvent, Message
-
 
 # ==================== 辅助 ====================
 

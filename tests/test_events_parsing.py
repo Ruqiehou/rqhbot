@@ -11,14 +11,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
 from sdk.core.events import GroupMessageEvent, Message
 
 
-def _text(segments: List[Dict[str, Any]]) -> str:
+def _text(segments: list[dict[str, Any]]) -> str:
     return Message.from_raw(segments).plain_text
 
 

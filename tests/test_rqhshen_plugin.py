@@ -48,6 +48,6 @@ async def test_rqhshen_group_help_route() -> None:
     await plugin.rqhbase_group(event)
 
     plugin.api.send_group_message.assert_awaited_once()
-    args, kwargs = plugin.api.send_group_message.await_args
+    args, _kwargs = plugin.api.send_group_message.await_args
     assert args[0] == 1001
     assert "修仙插件帮助" in args[1]

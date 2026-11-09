@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
-
-import pytest
+from typing import Any
 
 from sdk.core.events import (
     BaseEvent,
@@ -101,7 +99,7 @@ class TestBaseEvent:
 class TestGroupMessageEvent:
     """GroupMessageEvent 测试"""
 
-    def test_from_dict(self, sample_group_message_data: Dict[str, Any]) -> None:
+    def test_from_dict(self, sample_group_message_data: dict[str, Any]) -> None:
         """测试从字典创建群消息事件"""
         event = GroupMessageEvent.from_dict(sample_group_message_data)
         assert event.group_id == 1001
@@ -124,7 +122,7 @@ class TestGroupMessageEvent:
 class TestPrivateMessageEvent:
     """PrivateMessageEvent 测试"""
 
-    def test_from_dict(self, sample_private_message_data: Dict[str, Any]) -> None:
+    def test_from_dict(self, sample_private_message_data: dict[str, Any]) -> None:
         """测试从字典创建私聊消息事件"""
         event = PrivateMessageEvent.from_dict(sample_private_message_data)
         assert event.user_id == 2001

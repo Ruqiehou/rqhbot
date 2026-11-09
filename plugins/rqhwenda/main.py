@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import logging
-import re
 import random
+import re
 
 from sdk.core.events import GroupMessageEvent
 from sdk.pluginsystem import PluginBase, filter_registry
 
 # ==================== 数据层导入 ====================
-from .answer_manager import answer_manager, hmd, gly
+from .answer_manager import answer_manager, gly, hmd
 
 logger = logging.getLogger("rqhwenda")
 
@@ -276,7 +276,7 @@ class RqhWendaPlugin(PluginBase):
             return
         sample = random.sample(data, min(10, len(data)))
         lines = [f"[{kind}] 问：{q}\n答：{a}" for kind, q, a in sample]
-        await self.api.send_group_message(group_id, f"随机选取的问答：\n" + "\n".join(lines))
+        await self.api.send_group_message(group_id, "随机选取的问答：\n" + "\n".join(lines))
 
     async def _clear_all_answers(self, group_id: int, uid: str) -> None:
         """清空所有问答"""

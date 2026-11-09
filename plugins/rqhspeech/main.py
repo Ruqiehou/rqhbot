@@ -21,20 +21,18 @@ rqhspeech 插件 - 群聊发言统计管理程序
 
 import logging
 
-from sdk.pluginsystem import PluginBase, filter_registry
 from sdk.core.events import GroupMessageEvent, PrivateMessageEvent
-from datetime import datetime, timedelta
+from sdk.pluginsystem import PluginBase, filter_registry
+
+from .command_handler import CommandHandler
+from .data_manager import (
+    log_manager,
+    user_exists,
+    user_manager,
+)
+from .speech_config import SpeechConfig
 
 logger = logging.getLogger(__name__)
-
-from .speech_config import SpeechConfig
-from .data_manager import (
-    user_manager, log_manager,
-    load_user_data, get_display_username,
-    user_exists, check_and_handle_week_transition
-)
-from .archive_manager import DailyArchiver, auto_archive
-from .command_handler import CommandHandler
 
 
 class RqhSpeechPlugin(PluginBase):
@@ -56,7 +54,7 @@ class RqhSpeechPlugin(PluginBase):
         await super().on_load(api, event_bus, plugin_dir)
         # 初始化命令处理器（需要 api）
         self.cmd_handler = CommandHandler(self.user_mgr, self.log_mgr, self.api)
-            
+
         # 显示当前模式
         if SpeechConfig.USE_WHITELIST_MODE:
             logger.info(f"当前模式：白名单模式（仅允许 {len(SpeechConfig.ALLOWED_GROUPS)} 个群）")
@@ -125,27 +123,27 @@ class RqhSpeechPlugin(PluginBase):
         # 发言周榜
         elif m == "发言周榜":
             return await self.cmd_handler.handle_weekly_rank(event, group_id)
-        
+
         # 历史周榜
         elif m.startswith("历史周榜"):
             return await self.cmd_handler.handle_history_weekly_rank(event, group_id, m)
-        
+
         # 发言月榜
         elif m == "发言月榜":
             return await self.cmd_handler.handle_monthly_rank(event, group_id)
-        
+
         # 历史月榜
         elif m.startswith("历史月榜"):
             return await self.cmd_handler.handle_history_monthly_rank(event, group_id, m)
-        
+
         # 发言季榜
         elif m == "发言季榜":
             return await self.cmd_handler.handle_seasonal_rank(event, group_id)
-        
+
         # 发言年榜
         elif m == "发言年榜":
             return await self.cmd_handler.handle_yearly_rank(event, group_id)
-        
+
         # 历史年榜
         elif m.startswith("历史年榜"):
             return await self.cmd_handler.handle_history_yearly_rank(event, group_id, m)
@@ -163,7 +161,7 @@ class RqhSpeechPlugin(PluginBase):
             return await self.cmd_handler.handle_delete_user(event, m)
         elif m == "自动归档":
             return await self.cmd_handler.handle_auto_archive(event)
-        
+
         # 群管理命令
         elif m.startswith("加白名单") or m.startswith("加入白名单"):
             return await self.cmd_handler.handle_add_group(event, m)
@@ -173,7 +171,7 @@ class RqhSpeechPlugin(PluginBase):
             return await self.cmd_handler.handle_view_whitelist(event)
         elif m.startswith("切换白名单模式"):
             return await self.cmd_handler.handle_toggle_whitelist_mode(event)
-        
+
         # 权限管理命令（仅Admin可用）- 添加"发言"前缀避免与其他插件冲突
         elif m.startswith("发言添加管理员"):
             return await self.cmd_handler.handle_add_admin(event, m)

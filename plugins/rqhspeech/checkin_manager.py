@@ -4,12 +4,12 @@
 签到数据以 {user_id}.json 的形式存放在插件自己的 data/checkin 目录内。
 """
 
-import os
 import json
-import threading
 import logging
+import os
+import threading
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 from .speech_config import SpeechConfig
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class CheckinManager:
     """负责签到数据的读写与积分计算"""
 
-    def __init__(self, data_dir: str = None, base_points: int = 10, consecutive_bonus: int = 5):
+    def __init__(self, data_dir: str | None = None, base_points: int = 10, consecutive_bonus: int = 5):
         self.data_dir = data_dir or os.path.join(SpeechConfig.DATA_DIR, "checkin")
         self.base_points = base_points
         self.consecutive_bonus = consecutive_bonus
@@ -34,7 +34,7 @@ class CheckinManager:
         if not os.path.exists(path):
             return {}
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"读取签到数据 {user_id} 失败: {e}")
@@ -50,7 +50,7 @@ class CheckinManager:
         except Exception as e:
             logger.error(f"保存签到数据 {user_id} 失败: {e}")
 
-    def check_in(self, user_id: str, username: str = "") -> Dict[str, Any]:
+    def check_in(self, user_id: str, username: str = "") -> dict[str, Any]:
         """每日签到，返回签到结果（同日重复签到返回 success=False）"""
         now = datetime.now()
         today = now.strftime("%Y-%m-%d")
