@@ -37,7 +37,7 @@ from .pluginsystem import (
     private_server,
 )
 
-__version__: str = "3.8.0"
+__version__: str = "3.9.0"
 
 __all__: list[str] = [
     "BaseEvent",

@@ -7,6 +7,7 @@ aiohttp>=3.11
 packaging>=23.0
 Pillow>=9.0      # pintu 插件图片处理（plugin.json 声明 Pillow>=9.0）
 watchdog>=4.0    # 插件热重载的文件监控（缺失时自动降级为手动重载）
+typing_extensions>=4.6  # Python 3.10 下回退 typing.Self
 
 # 可选依赖（用于特定插件）
 # openai>=1.55   # GitHub 插件 LLM 功能

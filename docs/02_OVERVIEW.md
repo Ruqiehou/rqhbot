@@ -38,7 +38,8 @@ RqhBot 是一个基于 NapCat OneBot11 协议的 Python QQ 机器人 SDK，提�
 ```
 rqhbot/
 ├── sdk/                    # SDK 核心
-│   ├── core/              # 客户端、事件模型、事件总线
+│   ├── core/              # 客户端（transport/api 混入）、事件模型、事件总线、配置快照
+│   ├── adapter/           # 后端注册表与连接参数解析（NapCat / SnowLuma）
 │   ├── config/            # 配置管理
 │   └── pluginsystem/      # 插件基类与热加载管理器
 ├── plugins/               # 插件目录
@@ -92,4 +93,4 @@ rqhbot/
 
 ---
 
-**版本**: 3.8.0 | **更新**: 2026-06
+**版本**: 3.9.0 | **更新**: 2026-11

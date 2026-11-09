@@ -12,11 +12,15 @@ sdk/
 ├── bot_client.py            # BotClient 核心类，整合所有功能
 ├── core/                    # 核心模块
 │   ├── __init__.py          # 核心模块导出
-│   ├── client.py           # OneBotClient - WebSocket 客户端 / MessageSegment
+│   ├── client.py           # OneBotClient 门面（组合 Transport + API）/ MessageSegment
+│   ├── transport.py        # TransportMixin - WebSocket 连接/重连/echo 匹配/call()
+│   ├── api.py              # APIMixin - OneBot 动作封装（send_* / post_* / 群管）
+│   ├── settings.py         # ClientSettings 冻结配置快照（超时/重连/鉴权）
 │   ├── emoji_map.py        # QQ 表情 ID → 名称映射
 │   ├── events.py           # 强类型事件与 Message 定义
 │   ├── event_bus.py        # 事件总线（EventBus）
-│   └── interfaces.py       # 接口定义（IClient 等）
+│   ├── messages.py         # 消息段模型与兼容导出
+│   └── interfaces.py       # 接口定义（IClient / IConnectionEventListener）
 ├── pluginsystem/            # 插件系统模块
 │   ├── __init__.py          # 插件系统导出
 │   ├── plugin_base.py      # PluginBase / filter_registry
@@ -37,7 +41,8 @@ sdk/
 
 提供机器人核心功能：
 
-- **OneBotClient**: WebSocket 客户端（别名 `NapCatClient`），负责与选定的 OneBot 后端（NapCat / SnowLuma）建立连接、收发消息并封装常用 OneBot API 调用；`call()` 支持按 action 配置超时（见 `settings.api_timeout`）
+- **OneBotClient**: 门面类（别名 `NapCatClient`），由 `TransportMixin`（连接/重连/echo 匹配/`call()`）与 `APIMixin`（OneBot 动作封装）组合而成；`call()` 支持按 action 配置超时（见 `ClientSettings.action_timeouts`）
+- **ClientSettings**: `frozen dataclass` 配置快照，可通过 `ClientSettings.from_env()` 或 `ClientSettings.from_config(config_manager)` 构造，使 `core` 不再依赖全局配置单例
 - **MessageSegment**: 消息段构建器，用于构造数组格式的图文混排消息
 - **Event classes**: 强类型事件，包括 GroupMessageEvent、PrivateMessageEvent 等（含 Message 对象；`Message.from_raw()` 内置 LRU 解析缓存）
 - **EventBus**: 事件总线，实现模块间的解耦通信；构造函数 `max_concurrency` 限制同时在跑的处理器数量（默认 64，0 表示不限制）
@@ -190,7 +195,7 @@ class HelloPlugin(PluginBase):
 
 ## 📋 版本信息
 
-- **当前版本**: 3.8.0
-- **最后更新**: 2026-10-14
+- **当前版本**: 3.9.0
+- **最后更新**: 2026-11-09
 - **Python 要求**: >= 3.10
-- **依赖库**: websockets, aiohttp, PyYAML, python-dotenv, requests, packaging
+- **依赖库**: websockets, aiohttp, PyYAML, python-dotenv, requests, packaging, typing_extensions

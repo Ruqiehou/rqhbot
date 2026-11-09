@@ -9,13 +9,17 @@ RqhBot 安装脚本
     pip install ".[dev]"       # 安装开发依赖
 """
 
-from setuptools import setup, find_packages
+from pathlib import Path
+
+from setuptools import find_packages, setup
+
+README = Path(__file__).with_name("README.md").read_text(encoding="utf-8")
 
 setup(
     name="rqhbot",
-    version="3.8.0",
+    version="3.9.0",
     description="基于 OneBot 11 协议的 Python QQ 机器人开发框架，支持 NapCat / SnowLuma 等多后端",
-    long_description=open("README.md", encoding="utf-8").read(),
+    long_description=README,
     long_description_content_type="text/markdown",
     author="RqhBot Team",
     license="MIT",
@@ -38,6 +42,7 @@ setup(
         "packaging>=23.0",
         "Pillow>=9.0",
         "watchdog>=4.0",
+        "typing_extensions>=4.6",
     ],
     extras_require={
         "openai": ["openai>=1.55"],

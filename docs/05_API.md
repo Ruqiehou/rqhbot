@@ -22,6 +22,13 @@
 
 底层 WebSocket 客户端，实现 `IClient` Protocol。插件中通过 `self.api` 访问。
 
+内部由两个混入类组合而成（对调用方完全透明）：
+
+- `TransportMixin`（`sdk/core/transport.py`）：连接与重连、收发循环、echo 匹配、`call()`
+- `APIMixin`（`sdk/core/api.py`）：以下所有 OneBot 动作封装
+
+连接参数与超时由 `ClientSettings`（`sdk/core/settings.py`，冻结 dataclass）提供，可用 `ClientSettings.from_env()` 或 `ClientSettings.from_config(config_manager)` 构造后传给 `OneBotClient(..., settings=...)`；`BotClient` 默认已注入 YAML 配置快照。
+
 ### 访问方式
 
 ```python
@@ -33,6 +40,8 @@ await self.api.send_group_message(group_id, "你好")
 ```
 
 ### 消息发送
+
+> 每个 `send_*` 方法都有对应的 `post_*` 别名（如 `post_group_message` = `send_group_message`、`post_group_message_segments` = `send_group_message_segments`），两者均在 `IClient` Protocol 中声明，可按习惯任选。
 
 #### send_group_message(group_id, message, image_path, at_user_id, reply_message_id)
 
@@ -261,7 +270,7 @@ async def call(
 - `retry_delay`: 重试间隔（秒），默认 1.0
 - `timeout`: 单次调用超时（秒），默认按 action 解析
 
-**超时优先级：** 显式 `timeout` > `config.yaml` 的 `settings.api_timeout.<action>` > 内置表（`get_group_list` / `get_group_member_list` 等重型接口 60s，`send_group_msg` 等 15s） > 内置默认 30s。
+**超时优先级：** 显式 `timeout` > `ClientSettings.action_timeouts`（默认读自 `config.yaml` 的 `settings.api_timeout.<action>`） > 内置表（`get_group_list` / `get_group_member_list` 等重型接口 60s，`send_group_msg` 等 15s） > `ClientSettings.default_api_timeout`（默认 30s）。
 
 **示例：**
 ```python
