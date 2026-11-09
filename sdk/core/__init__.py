@@ -32,9 +32,11 @@ from .events import (
     RequestEvent,
 )
 from .messages import MessageSegment
+from .settings import ClientSettings
 
 __all__: list[str] = [
     "BaseEvent",
+    "ClientSettings",
     "EssenceMsgNotice",
     "EventBus",
     "FriendAddNotice",

@@ -9,8 +9,14 @@ import hashlib
 import json
 import logging
 import re
+import sys
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:  # pragma: no cover - Python 3.10 兼容
+    from typing_extensions import Self
 
 from .emoji_map import get_face_name
 
@@ -111,7 +117,7 @@ class Message:
     has_markdown: bool = False                                # 是否含 Markdown
 
     @classmethod
-    def _copy_from(cls, other: Message) -> Message:
+    def _copy_from(cls, other: Message) -> Self:
         """从缓存中的 Message 生成独立副本
 
         缓存对象会被多个事件共享，复制可变字段（列表）可避免某个处理器
@@ -447,7 +453,7 @@ class NoticeEvent(BaseEvent):
     def from_dict(cls, data: EventData) -> NoticeEvent:
         notice_type = str(data.get("notice_type", ""))
         raw_subtype = str(data.get("sub_type", ""))
-        _map = {
+        _map: dict[str, type[NoticeEvent]] = {
             "group_increase": GroupIncreaseNotice,
             "group_decrease": GroupDecreaseNotice,
             "group_ban":      GroupBanNotice,
@@ -460,7 +466,7 @@ class NoticeEvent(BaseEvent):
             "essence_msg":    EssenceMsgNotice,
         }
         if notice_type == "notify" and raw_subtype == "poke":
-            target = PokeNotice
+            target: type[NoticeEvent] = PokeNotice
         else:
             target = _map.get(notice_type, NoticeEvent)
         return target._build(data)
@@ -660,14 +666,14 @@ class MetaEvent(BaseEvent):
     sub_type: str = ""
 
     @classmethod
-    def from_dict(cls, data: EventData) -> Self:
+    def from_dict(cls, data: EventData) -> MetaEvent:
         meta_event_type = str(data.get("meta_event_type", ""))
-        _map = {
+        _map: dict[str, type[MetaEvent]] = {
             "heartbeat": HeartbeatEvent,
             "lifecycle": LifecycleEvent,
         }
-        target = _map.get(meta_event_type, MetaEvent)
-        return target._build(data)  # type: ignore[return-value]
+        target: type[MetaEvent] = _map.get(meta_event_type, MetaEvent)
+        return target._build(data)
 
     @classmethod
     def _build(cls, data: EventData) -> Self:
@@ -723,11 +729,11 @@ class RequestEvent(BaseEvent):
     @classmethod
     def from_dict(cls, data: EventData) -> RequestEvent:
         request_type = str(data.get("request_type", ""))
-        _map = {
+        _map: dict[str, type[RequestEvent]] = {
             "friend": FriendRequestEvent,
             "group":  GroupRequestEvent,
         }
-        target = _map.get(request_type, RequestEvent)
+        target: type[RequestEvent] = _map.get(request_type, RequestEvent)
         return target._build(data)
 
     @classmethod

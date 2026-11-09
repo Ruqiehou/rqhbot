@@ -18,11 +18,12 @@ from typing import Any, Final
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from sdk.adapter import BackendSpec
 from sdk.core.interfaces import (
     APIResponse,
     IConnectionEventListener,
 )
-from sdk.core.settings import ClientSettings, DEFAULT_ACTION_TIMEOUTS
+from sdk.core.settings import DEFAULT_ACTION_TIMEOUTS, ClientSettings
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class TransportMixin:
     )
 
     settings: ClientSettings
+    backend: BackendSpec
     ws: Any
     ws_url: str
     access_token: str

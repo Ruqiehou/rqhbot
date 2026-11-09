@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from sdk.config import setup_logging
-from sdk.core import OneBotClient
+from sdk.config import config_manager, setup_logging
+from sdk.core import ClientSettings, OneBotClient
 from sdk.core.event_bus import EventBus
 from sdk.core.events import (
     GroupMessageEvent,
@@ -45,9 +45,16 @@ class BotClient:
         access_token: str | None = None,
         plugins_dir: str = "plugins",
         backend: str | None = None,
+        settings: ClientSettings | None = None,
     ) -> None:
+        self.settings: ClientSettings = settings or ClientSettings.from_config(
+            config_manager
+        )
         self.client: OneBotClient = OneBotClient(
-            ws_url=ws_url, access_token=access_token, backend=backend
+            ws_url=ws_url,
+            access_token=access_token,
+            backend=backend,
+            settings=self.settings,
         )
         self.api = self.client
         self.event_bus: EventBus = EventBus()
@@ -125,10 +132,10 @@ class BotClient:
             except Exception as e:
                 logger.error(f"处理元事件时出错: {e}", exc_info=True)
 
-    def _fire_task(self, coro: Awaitable[Any]) -> None:
+    def _fire_task(self, coro: Coroutine[Any, Any, Any]) -> None:
         """创建后台任务并追踪，异常会被记录而非静默丢失"""
         # 使用 create_task（仅在 running loop 中调用，语义更明确）
-        task = asyncio.create_task(coro)
+        task: asyncio.Task[Any] = asyncio.create_task(coro)
         self._tracked_tasks.add(task)
         task.add_done_callback(self._tracked_tasks.discard)
         task.add_done_callback(self._on_task_error)

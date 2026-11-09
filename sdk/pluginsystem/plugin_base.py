@@ -18,7 +18,7 @@ from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar, cast
 
 try:
     from ..config import setup_logging
@@ -98,7 +98,7 @@ def _message_filter_decorator(
     def decorator(func: MessageHandler) -> MessageHandler:
         rules: list[MessageFilterRule] = list(getattr(func, "_rqhbot_message_filters", []))
         rules.append(MessageFilterRule(message_type, **filters))
-        func._rqhbot_message_filters = rules
+        setattr(func, "_rqhbot_message_filters", rules)  # noqa: B010 - 动态属性标注
         return func
     return decorator
 
@@ -143,6 +143,9 @@ class PluginBase:
     不持有 BotClient 引用。
     """
 
+    #: 当前插件管理器引用（由 PluginManager 在启动时注入）
+    _plugin_manager: ClassVar[Any] = None
+
     def __init__(self) -> None:
         self.name: str = self.__class__.__name__
         self.version: str = "1.0.0"
@@ -179,7 +182,7 @@ class PluginBase:
 
         impl = cls.__dict__.get("on_unload")
         if impl is not None and asyncio.iscoroutinefunction(impl):
-            cls._on_unload_impl = impl
+            setattr(cls, "_on_unload_impl", impl)  # noqa: B010 - 动态属性重命名
             # 删掉子类自己的 on_unload，让实例继续解析到基类的模板方法
             delattr(cls, "on_unload")
 
@@ -307,7 +310,7 @@ class PluginBase:
         for klass in type(self).__mro__:
             impl = klass.__dict__.get("_on_unload_impl")
             if impl is not None:
-                return impl
+                return cast("Callable[[Any], Coroutine[Any, Any, Any]]", impl)
         return None
 
     def _release_plugin_resources(self) -> None:
@@ -546,7 +549,8 @@ class PluginBase:
             if not file_path.exists():
                 return default if default is not None else {}
             with open(file_path, encoding="utf-8") as f:
-                return json.load(f)
+                loaded = json.load(f)
+                return loaded if isinstance(loaded, dict) else (default or {})
         except Exception as e:
             logger.error(f"加载数据失败: {e}")
             return default if default is not None else {}
@@ -783,6 +787,9 @@ class PluginManager:
                 pp,
                 submodule_search_locations=[plugin_dir_str],
             )
+            if spec is None or spec.loader is None:
+                logger.error(f"无法为插件文件创建模块规范: {pp}")
+                return None
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             try:

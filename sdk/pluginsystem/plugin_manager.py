@@ -35,10 +35,10 @@ try:
     HAS_WATCHDOG = True
 except ImportError:
     HAS_WATCHDOG = False
-    Observer = None
-    FileSystemEventHandler = object
-    FileModifiedEvent = None
-    FileCreatedEvent = None
+    Observer = None  # type: ignore[assignment,misc]
+    FileSystemEventHandler = object  # type: ignore[assignment,misc]
+    FileModifiedEvent = None  # type: ignore[assignment,misc]
+    FileCreatedEvent = None  # type: ignore[assignment,misc]
 
 from .plugin_base import PluginBase
 
@@ -52,6 +52,17 @@ def _print_reload_status(plugin_name: str, status: str, success: bool = True) ->
         print(f"\033[32m[{timestamp}] ✓ 插件 '{plugin_name}' {status}\033[0m")
     else:
         print(f"\033[31m[{timestamp}] ✗ 插件 '{plugin_name}' {status}\033[0m")
+
+
+def _task_cancel_requested(task: asyncio.Task[Any]) -> bool:
+    """判断任务是否已收到取消请求
+
+    ``Task.cancelling()`` 仅 Python 3.11+ 提供，3.10 回退到 ``cancelled()``。
+    """
+    cancelling = getattr(task, "cancelling", None)
+    if callable(cancelling):
+        return bool(cancelling())
+    return task.cancelled()
 
 
 class HotReloadPluginManager:
@@ -156,6 +167,8 @@ class HotReloadPluginManager:
         try:
             with open(config_path, encoding="utf-8") as f:
                 config = json.load(f)
+            if not isinstance(config, dict):
+                return default_config
             # config.json 可能是普通数据配置而非清单，只有确实含清单键时才采用
             if using_fallback and not self._looks_like_manifest(config):
                 return default_config
@@ -164,7 +177,7 @@ class HotReloadPluginManager:
                 if key not in config:
                     config[key] = value
             self._plugin_configs[plugin_name] = config
-            return config
+            return dict(config)
         except Exception as e:
             logger.warning(f"加载插件配置 {plugin_name} 失败: {e}，使用默认配置")
             return default_config
@@ -267,7 +280,7 @@ class HotReloadPluginManager:
             self._load_tasks.pop(plugin_name, None)
         if not task.cancelled() and task.exception() is not None:
             error = task.exception()
-            logger.error(f"插件 {plugin_name} 加载任务失败", exc_info=(type(error), error, error.__traceback__))
+            logger.error(f"插件 {plugin_name} 加载任务失败", exc_info=error)
 
     # ==================== 生命周期串行化辅助 ====================
 
@@ -472,7 +485,7 @@ class HotReloadPluginManager:
             # 当前卸载任务确实被取消时才继续向上传播；
             # 插件自身抛出的 CancelledError 当作普通清理错误处理
             current_task = asyncio.current_task()
-            if current_task is not None and current_task.cancelling():
+            if current_task is not None and _task_cancel_requested(current_task):
                 raise
             logger.error(f"插件 {plugin_name} on_unload 被取消", exc_info=True)
         except Exception as e:
@@ -797,7 +810,7 @@ class HotReloadPluginManager:
             self._debounce_tasks.pop(plugin_name, None)
         if not task.cancelled() and task.exception() is not None:
             error = task.exception()
-            logger.error(f"插件 {plugin_name} 重载失败", exc_info=(type(error), error, error.__traceback__))
+            logger.error(f"插件 {plugin_name} 重载失败", exc_info=error)
 
 
 # ==================== 文件监控事件处理器 ====================

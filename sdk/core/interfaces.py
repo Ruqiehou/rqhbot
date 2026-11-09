@@ -156,6 +156,46 @@ class IClient(Protocol):
         """按事件来源统一回复（自动识别群聊/私聊）"""
         ...
 
+    # ---- 发送消息（post_ 风格别名）----
+    async def post_group_message(
+        self,
+        group_id: int,
+        message: str = "",
+        image_path: str | None = None,
+        at_user_id: int | None = None,
+        reply_message_id: int | None = None,
+    ) -> APIResponse:
+        """发送群聊消息（``send_group_message`` 别名）"""
+        ...
+
+    async def post_private_message(
+        self,
+        user_id: int,
+        message: str = "",
+        image_path: str | None = None,
+        reply_message_id: int | None = None,
+    ) -> APIResponse:
+        """发送私聊消息（``send_private_message`` 别名）"""
+        ...
+
+    async def post_group_message_segments(
+        self,
+        group_id: int,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
+    ) -> APIResponse:
+        """发送群聊消息段（``send_group_message_segments`` 别名）"""
+        ...
+
+    async def post_private_message_segments(
+        self,
+        user_id: int,
+        segments: list[MessageSegmentType],
+        reply_message_id: int | None = None,
+    ) -> APIResponse:
+        """发送私聊消息段（``send_private_message_segments`` 别名）"""
+        ...
+
     # ---- 消息管理 ----
     async def delete_message(self, message_id: int) -> APIResponse:
         """撤回/删除消息"""
